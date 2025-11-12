@@ -3,9 +3,11 @@ from tkinter import filedialog
 import os
 import numpy as np
 import argparse
+import soundfile as sf
 from PIL import Image
 
 LOSSLESS_TYPES=["wav","png"]
+MARKER=b"$bpg0"
 
 # mapping for file signatures
 magic_numbers = {
@@ -36,8 +38,7 @@ def file_to_bits(file_path):
                 yield(byte>>i)&1
 
 def marker_bits():
-    marker = b"$bpg0"
-    for byte in marker:
+    for byte in MARKER:
         for i in range(7,-1,-1):
             yield(byte>>i)&1
 
@@ -61,8 +62,6 @@ def encode():
         encode_wav(src,sensitive_info,dst)
     else:
         exit(1)
-# snip here
-
 
 def encode_png(src,sensitive_info,dst):
 
@@ -82,7 +81,6 @@ def encode_png(src,sensitive_info,dst):
     total_pixels=array.size//n
 
     data_bits=list(data)+list(marker_bits())
-    size=len(data_bits)
     bit_gen= iter(data_bits)
 
     for p in range(total_pixels):
@@ -95,14 +93,28 @@ def encode_png(src,sensitive_info,dst):
     array=array.reshape(height,width,n)
     enc_img = Image.fromarray(array.astype('uint8'))
     enc_img.save(dst)
-    print("Image successfully encoded")
-    print((int)(size/8),"bytes encoded")
+    print("PNG successfully encoded")
+    print((int)(len(data_bits)/8),"bytes encoded")
     return 
 
-def encode_wav(src,dst):
-    print(f"source: {src}/ndestination: {dst}")
-    return 
+def encode_wav(src,sensitive_info,dst):
+    samples, samplerate=sf.read(src,dtype='int16')
 
+    if samples.ndim > 1:
+        samples=samples[:,0]
+
+    bit_gen=list(file_to_bits(sensitive_info)) + list(marker_bits())
+
+    if len(bit_gen) > len(samples):
+        raise ValueError("Not enough audio data to hide this message")
+    
+    samples[:len(bit_gen)] = (samples[:len(bit_gen)] & ~1) | bit_gen
+    
+    sf.write(dst,samples,samplerate, subtype='PCM_16')
+
+    print("WAV successfully encoded")
+    print((int)(len(bit_gen)/8),"bytes encoded")
+    return 
 
 def decode():
     src = select_file("File to decode")    
@@ -141,8 +153,7 @@ def decode_png(src,dst):
                 byte=(byte<<1)|bits[i+j]
         data_bytes.append(byte)
 
-    marker = b"$bpg0"
-    marker_index=data_bytes.find(marker)
+    marker_index=data_bytes.find(MARKER)
     if marker_index!=-1:
         data_bytes=data_bytes[:marker_index]
 
@@ -155,7 +166,34 @@ def decode_png(src,dst):
     print(f"file successfully reconstructed as {dst}")
 
 def decode_wav(src,dst):
-    print(f"source: {src}/ndestination: {dst}")
+
+    samples,_ =sf.read(src,dtype='int16')
+
+    # samples=np.frombuffer(frames,dtype=np.int16)
+    if samples.ndim >1:
+        samples=samples[:,0]
+
+    bits=samples&1
+
+    data_bytes=bytearray()
+    for i in range(0,len(bits),8):
+        byte=0
+        for j in range(8):
+            if i+j<len(bits):
+                byte=(byte<<1)|bits[i+j]
+        data_bytes.append(byte)
+    
+    marker_index=data_bytes.find(MARKER)
+    if marker_index!=-1:
+        data_bytes=data_bytes[:marker_index]
+
+    magic=extract_magic(data_bytes[:12]) # calls extract_magic to determine the recovered file type
+    dst=dst+"."+magic
+
+    with open(dst,"wb") as f:
+        f.write(data_bytes)
+    
+    print(f"File successfully reconstructed as {dst}")    
     return
 
 def verify_lossless(file_path):
