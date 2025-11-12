@@ -5,11 +5,14 @@ import numpy as np
 import argparse
 from PIL import Image
 
+LOSSLESS_TYPES=["wav","png"]
+
 # mapping for file signatures
 magic_numbers = {
     "pdf": bytes.fromhex("255044462d"),
     "png": bytes.fromhex("89504e470d0a1a0a"),
-    "gzip": bytes.fromhex("1f8b")
+    "gz": bytes.fromhex("1f8b"),
+    "wav": bytes.fromhex("524946460000000057415645")
 }
 
 # Argument parsing to determine either encoding or decoding actions
@@ -40,12 +43,29 @@ def marker_bits():
 
 def encode():
     src = select_file("target file")    
+    ok, filetype = verify_lossless(src)
+    if not ok:
+        print(f"Error: target file must be a lossless type (wav/png), chosen type is '{filetype}'")
+        exit(1)
+    
     sensitive_info = select_file("sensitive information")
     if(src=="" or sensitive_info==""):
         print("null file paths found")
         exit(1)
+
+    dst=os.path.join(os.path.dirname(os.path.abspath(__file__)),"encoded."+filetype)
     
-    dst=os.path.join(os.path.dirname(os.path.abspath(__file__)),"encoded.png")
+    if filetype=="png":
+        encode_png(src,sensitive_info,dst)
+    elif filetype=="wav":
+        encode_wav(src,sensitive_info,dst)
+    else:
+        exit(1)
+# snip here
+
+
+def encode_png(src,sensitive_info,dst):
+
     data=file_to_bits(sensitive_info)
 
     img=Image.open(src, 'r')
@@ -61,9 +81,6 @@ def encode():
     
     total_pixels=array.size//n
 
-    # bit_gen= (bit for bit in list(data)+list(marker_bits()))s
-    # size=len(list(bit_gen))
-
     data_bits=list(data)+list(marker_bits())
     size=len(data_bits)
     bit_gen= iter(data_bits)
@@ -76,18 +93,38 @@ def encode():
                 break
 
     array=array.reshape(height,width,n)
-    enc_img = Image.fromarray(array.astype('uint8'), img.mode)
+    enc_img = Image.fromarray(array.astype('uint8'))
     enc_img.save(dst)
     print("Image successfully encoded")
     print((int)(size/8),"bytes encoded")
+    return 
+
+def encode_wav(src,dst):
+    print(f"source: {src}/ndestination: {dst}")
+    return 
+
 
 def decode():
     src = select_file("File to decode")    
     if(src==""):
         print("null file path selected")
         exit(1)
+
+    ok, filetype = verify_lossless(src)
+    if not ok:
+        print(f"Error: source file must be a lossless type (wav/png), chosen type is '{filetype}'")
+        exit(1)
+
     dst=os.path.join(os.path.dirname(os.path.abspath(__file__)),"reconstructed")
 
+    if filetype=="png":
+        decode_png(src,dst)
+    elif filetype=="wav":
+        decode_wav(src,dst)
+    else:
+        print("decode not possible for provided file format")
+
+def decode_png(src,dst):
     img=Image.open(src,'r')
     array=np.array(list(img.getdata()))
     bits=[]
@@ -109,7 +146,7 @@ def decode():
     if marker_index!=-1:
         data_bytes=data_bytes[:marker_index]
 
-    magic=extract_magic(data_bytes[:10]) # calls extract_magic to determine the recovered file type
+    magic=extract_magic(data_bytes[:12]) # calls extract_magic to determine the recovered file type
     dst= dst+"."+magic
 
     with open(dst, "wb") as f:
@@ -117,12 +154,26 @@ def decode():
 
     print(f"file successfully reconstructed as {dst}")
 
+def decode_wav(src,dst):
+    print(f"source: {src}/ndestination: {dst}")
+    return
+
+def verify_lossless(file_path):
+    if file_path=="": # if file_path is null
+        return False,""
+    with open(file_path, "rb") as f:
+        header = f.read(12)
+    filetype = extract_magic(header)
+    return filetype in LOSSLESS_TYPES, filetype
+
 # will return the embedded file type based on magic bytes, returns .txt if no matching header found
 def extract_magic(header):
-    print(header)
     for filetype, signature in magic_numbers.items():
         if header.startswith(signature):
             return filetype
+        if filetype=="wav": #special condition with wav format
+            if (header[:4]==signature[:4] and header[8:12]==signature[8:12]):
+                return filetype
     return "txt"
 
 # we are going to start by assuming the target file is a PNG then move forward with other media types 
