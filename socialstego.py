@@ -10,6 +10,7 @@ from pathlib import Path
 from PIL import Image
 
 LOSSLESS_TYPES=["wav","png"]
+SOCIAL_LIST=["DISCORD","REDDIT","SOUNDCLOUD"]
 MARKER=b"$bpg0"
 
 TOKEN=""
@@ -51,12 +52,15 @@ def set_token_channel(config,choice):
 # Argument parsing to determine either encoding or decoding actions
 def parse_args():
     parser=argparse.ArgumentParser(description="Stegonagraphy Encoder/Decoder script")
+    # required flags
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("-e", "--encode", action="store_true", help="Run in encode mode")
     mode.add_argument("-d", "--decode", action="store_true", help="Run in decode mode")
     
+    #optional flags
     parser.add_argument("-f","--files",required=False,nargs='*',help="Files: encode=source secret | decode=encoded")
     parser.add_argument("-o","--output",required=False,help="Output filename")
+    parser.add_argument("-s","--social",required=False,choices=SOCIAL_LIST,type=str.upper,help=f"Choose social media: {SOCIAL_LIST}")
 
     args=parser.parse_args()
 
@@ -67,10 +71,6 @@ def parse_args():
     if args.decode:
         if args.files and len(args.files) !=1:
             parser.error("Decode requires -f <encoded file> (1 file)")
-
-    # if args.output:
-    #     if len(args.output) != 1:
-    #         parser.error("Output file requires -o <output file> (1 file name)")
 
     return args
 
@@ -303,13 +303,14 @@ def main():
     args=parse_args()
     load_config()
     files=args.files or []
+    social=args.social or ""
     if args.encode:
         output=args.output or "encoded"
-        dst = encode(files[0],files[1],output)
+        dst = encode(files[0],files[1],output,social)
         post_social(dst)
     elif args.decode:
         output=args.output or "reconstructed"
-        decode(files[0],output)    
+        decode(files[0],output,social)    
     return
 
 if __name__== "__main__":
