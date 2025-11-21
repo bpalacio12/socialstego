@@ -4,10 +4,20 @@ import os
 import numpy as np
 import argparse
 import soundfile as sf
+import discord
+import json
+from pathlib import Path
 from PIL import Image
 
 LOSSLESS_TYPES=["wav","png"]
 MARKER=b"$bpg0"
+
+TOKEN=""
+CHANNEL_ID=""
+
+DISCORD_REF=1
+REDDIT_REF=2
+FACEBOOK_REF=3
 
 # mapping for file signatures
 magic_numbers = {
@@ -16,6 +26,26 @@ magic_numbers = {
     "gz": bytes.fromhex("1f8b"),
     "wav": bytes.fromhex("524946460000000057415645")
 }
+
+def load_config(path="config.json"):
+    config_path=Path(path)
+    if not config_path.exists():
+        raise FileNotFoundError(f"Config file not found: {path}")
+    
+    with open(config_path, "r",encoding="utf-8") as f:
+        return json.load(f)
+    
+def set_token_channel(config,choice):
+    match choice:
+        case _ if choice==DISCORD_REF:
+            return config["discord"]["bot_token"], int(config["discord"]["channel_id"])
+        case _ if choice==REDDIT_REF:
+            return
+        case _ if choice==FACEBOOK_REF:
+            return
+        case _:
+            print(f"No social media selection was found for chosen selection")
+            return
 
 # Argument parsing to determine either encoding or decoding actions
 def parse_args():
@@ -62,9 +92,9 @@ def encode():
         encode_wav(src,sensitive_info,dst)
     else:
         exit(1)
+    return dst
 
 def encode_png(src,sensitive_info,dst):
-
     data=file_to_bits(sensitive_info)
 
     img=Image.open(src, 'r')
@@ -114,7 +144,29 @@ def encode_wav(src,sensitive_info,dst):
 
     print("WAV successfully encoded")
     print((int)(len(bit_gen)/8),"bytes encoded")
-    return 
+    return dst
+
+def post_social(dst):
+    config=load_config()
+    TOKEN,CHANNEL_ID = set_token_channel(config,1)
+    discord_post(TOKEN,CHANNEL_ID,dst)
+    
+def discord_post(TOKEN, CHANNEL_ID,dst):
+    intents=discord.Intents.default()
+    client=discord.Client(intents=intents)
+    print(dst)
+    @client.event
+    async def on_ready():
+        print(f"logged in as {client.user}")
+        channel = client.get_channel(CHANNEL_ID)
+        if channel:
+            await channel.send(content="This is a test",file=discord.File(dst))
+            print(f"Message sent to channel {CHANNEL_ID}")
+        else:
+            print(f"channel with ID: {CHANNEL_ID}, not found")
+            return
+        await client.close()
+    client.run(TOKEN)
 
 def decode():
     src = select_file("File to decode")    
@@ -166,10 +218,8 @@ def decode_png(src,dst):
     print(f"file successfully reconstructed as {dst}")
 
 def decode_wav(src,dst):
-
     samples,_ =sf.read(src,dtype='int16')
 
-    # samples=np.frombuffer(frames,dtype=np.int16)
     if samples.ndim >1:
         samples=samples[:,0]
 
@@ -217,8 +267,11 @@ def extract_magic(header):
 # we are going to start by assuming the target file is a PNG then move forward with other media types 
 def main():
     args=parse_args()
+
+    load_config()
     if args.encode:
-        encode()
+        dst = encode()
+        post_social(dst)
     elif args.decode:
         decode()    
     return
