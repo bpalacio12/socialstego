@@ -17,7 +17,7 @@ CHANNEL_ID=""
 
 DISCORD_REF=1
 REDDIT_REF=2
-FACEBOOK_REF=3
+SOUNDCLOUD_REF=3
 
 # mapping for file signatures
 magic_numbers = {
@@ -27,6 +27,7 @@ magic_numbers = {
     "wav": bytes.fromhex("524946460000000057415645")
 }
 
+# loads the config file supplied in the same directory with name config.json
 def load_config(path="config.json"):
     config_path=Path(path)
     if not config_path.exists():
@@ -41,7 +42,7 @@ def set_token_channel(config,choice):
             return config["discord"]["bot_token"], int(config["discord"]["channel_id"])
         case _ if choice==REDDIT_REF:
             return
-        case _ if choice==FACEBOOK_REF:
+        case _ if choice==SOUNDCLOUD_REF:
             return
         case _:
             print(f"No social media selection was found for chosen selection")
@@ -50,10 +51,28 @@ def set_token_channel(config,choice):
 # Argument parsing to determine either encoding or decoding actions
 def parse_args():
     parser=argparse.ArgumentParser(description="Stegonagraphy Encoder/Decoder script")
-    group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument("-e", "--encode", action="store_true", help="Run in encode mode")
-    group.add_argument("-d", "--decode", action="store_true", help="Run in decode mode")
-    return parser.parse_args()
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("-e", "--encode", action="store_true", help="Run in encode mode")
+    mode.add_argument("-d", "--decode", action="store_true", help="Run in decode mode")
+    
+    parser.add_argument("-f","--files",nargs='*',help="Files: encode=source secret | decode=encoded")
+    parser.add_argument("-o","--output",nargs='*',help="Output filename")
+
+    args=parser.parse_args()
+
+    if args.encode:
+        if args.files and len(args.files) !=2:
+            parser.error("Encoding requires -f <source> <secret_info> (2 files)")
+
+    if args.decode:
+        if args.files and len(args.files) !=1:
+            parser.error("Decode requires -f <encoded file> (1 file)")
+
+    if args.output:
+        if len(args.output) != 1:
+            parser.error("Output file requires -o <output file> (1 file name)")
+
+    return args
 
 # Uses the tkinter interface to provide the user withthe ability to select the desired files 
 def select_file(title):
@@ -72,20 +91,27 @@ def marker_bits():
         for i in range(7,-1,-1):
             yield(byte>>i)&1
 
-def encode():
-    src = select_file("target file")    
+def encode(src,sensitive_info,dst):
+    # ensure source file to encode is correct
+    if not src:
+        src = select_file("target file")    
     ok, filetype = verify_lossless(src)
     if not ok:
         print(f"Error: target file must be a lossless type (wav/png), chosen type is '{filetype}'")
         exit(1)
     
-    sensitive_info = select_file("sensitive information")
+    # ensure sensitive_info file is correct
+    if not sensitive_info:
+        sensitive_info = select_file("sensitive information")
     if(src=="" or sensitive_info==""):
         print("null file paths found")
         exit(1)
 
-    dst=os.path.join(os.path.dirname(os.path.abspath(__file__)),"encoded."+filetype)
-    
+    if not dst:
+        dst=os.path.join(os.path.dirname(os.path.abspath(__file__)),"encoded."+filetype)
+    else:
+        dst=dst.split('.',1)[0]+"."+filetype
+
     if filetype=="png":
         encode_png(src,sensitive_info,dst)
     elif filetype=="wav":
@@ -146,6 +172,10 @@ def encode_wav(src,sensitive_info,dst):
     print((int)(len(bit_gen)/8),"bytes encoded")
     return dst
 
+def save_file(dst,file):
+    
+    return
+
 def post_social(dst):
     config=load_config()
     TOKEN,CHANNEL_ID = set_token_channel(config,1)
@@ -168,18 +198,22 @@ def discord_post(TOKEN, CHANNEL_ID,dst):
         await client.close()
     client.run(TOKEN)
 
-def decode():
-    src = select_file("File to decode")    
+def decode(src,dst):
+    # ensure correct source file
+    if not src:
+        src = select_file("File to decode")    
     if(src==""):
         print("null file path selected")
         exit(1)
-
     ok, filetype = verify_lossless(src)
     if not ok:
         print(f"Error: source file must be a lossless type (wav/png), chosen type is '{filetype}'")
         exit(1)
 
-    dst=os.path.join(os.path.dirname(os.path.abspath(__file__)),"reconstructed")
+    if not dst:
+        dst=os.path.join(os.path.dirname(os.path.abspath(__file__)),"reconstructed")
+    else:
+        dst=dst.split('.',1)[0]
 
     if filetype=="png":
         decode_png(src,dst)
@@ -267,13 +301,12 @@ def extract_magic(header):
 # we are going to start by assuming the target file is a PNG then move forward with other media types 
 def main():
     args=parse_args()
-
     load_config()
     if args.encode:
-        dst = encode()
+        dst = encode(args.files[0],args.files[1],args.output[0])
         post_social(dst)
     elif args.decode:
-        decode()    
+        decode(args.files[0],args.output[0])    
     return
 
 if __name__== "__main__":
