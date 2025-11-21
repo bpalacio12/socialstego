@@ -306,11 +306,17 @@ def main():
     social=args.social or ""
     if args.encode:
         output=args.output or "encoded"
-        dst = encode(files[0],files[1],output,social)
-        post_social(dst)
+        dst = encode(files[0],files[1],output)
+        if not social=="":
+            post_social(dst)
     elif args.decode:
         output=args.output or "reconstructed"
-        decode(files[0],output,social)    
+        if not social=="":
+            # this is where will extract from social
+            print("Not currently supported")
+            return
+        else:
+            decode(files[0],output)    
     return
 
 if __name__== "__main__":
