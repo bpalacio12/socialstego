@@ -55,8 +55,8 @@ def parse_args():
     mode.add_argument("-e", "--encode", action="store_true", help="Run in encode mode")
     mode.add_argument("-d", "--decode", action="store_true", help="Run in decode mode")
     
-    parser.add_argument("-f","--files",nargs='*',help="Files: encode=source secret | decode=encoded")
-    parser.add_argument("-o","--output",nargs='*',help="Output filename")
+    parser.add_argument("-f","--files",required=False,nargs='*',help="Files: encode=source secret | decode=encoded")
+    parser.add_argument("-o","--output",required=False,help="Output filename")
 
     args=parser.parse_args()
 
@@ -68,13 +68,13 @@ def parse_args():
         if args.files and len(args.files) !=1:
             parser.error("Decode requires -f <encoded file> (1 file)")
 
-    if args.output:
-        if len(args.output) != 1:
-            parser.error("Output file requires -o <output file> (1 file name)")
+    # if args.output:
+    #     if len(args.output) != 1:
+    #         parser.error("Output file requires -o <output file> (1 file name)")
 
     return args
 
-# Uses the tkinter interface to provide the user withthe ability to select the desired files 
+# Uses the tkinter interface to provide the user with the ability to select the desired files if none are specified
 def select_file(title):
     root = tk.Tk()
     root.withdraw()  # Hide the root window
@@ -302,11 +302,14 @@ def extract_magic(header):
 def main():
     args=parse_args()
     load_config()
+    files=args.files or []
     if args.encode:
-        dst = encode(args.files[0],args.files[1],args.output[0])
+        output=args.output or "encoded"
+        dst = encode(files[0],files[1],output)
         post_social(dst)
     elif args.decode:
-        decode(args.files[0],args.output[0])    
+        output=args.output or "reconstructed"
+        decode(files[0],output)    
     return
 
 if __name__== "__main__":
