@@ -11,7 +11,6 @@ from PIL import Image
 
 LOSSLESS_TYPES=["wav","png"]
 SOCIAL_LIST=["DISCORD","REDDIT","SOUNDCLOUD"]
-MARKER=b"$bpg0"
 
 TOKEN=""
 CHANNEL_ID=""
@@ -49,7 +48,8 @@ def set_token_channel(config,choice):
             print(f"No social media selection was found for chosen selection")
             return
 
-# Argument parsing to determine either encoding or decoding actions
+# Argument parsing to determine either encoding or decoding actions 
+# Also specify files, output file, and social media to extract from
 def parse_args():
     parser=argparse.ArgumentParser(description="Stegonagraphy Encoder/Decoder script")
     # required flags
@@ -86,10 +86,25 @@ def file_to_bits(file_path):
             for i in range(7,-1,-1):
                 yield(byte>>i)&1
 
-def marker_bits():
-    for byte in MARKER:
-        for i in range(7,-1,-1):
-            yield(byte>>i)&1
+def build_payload_bits(file_path):
+    data_bits=list(file_to_bits(file_path))
+    size_bytes = len(data_bits) // 8
+
+    header_bits= [(size_bytes >> i) & 1 for i in range(63,-1,-1)]
+
+    return header_bits+list(data_bits)
+
+def bits_to_int(bits):
+    value=0
+    for b in bits:
+        value=(value<<1) | b
+    return value
+
+def bits_to_bytes(bits):
+    return bytes(
+        sum((bit << (7 - j)) for j, bit in enumerate(bits[i:i+8]))
+        for i in range(0, len(bits), 8)
+    )
 
 def encode(src,sensitive_info,dst):
     # ensure source file to encode is correct
@@ -121,7 +136,7 @@ def encode(src,sensitive_info,dst):
     return dst
 
 def encode_png(src,sensitive_info,dst):
-    data=file_to_bits(sensitive_info)
+    data_bits=build_payload_bits(sensitive_info)
 
     img=Image.open(src, 'r')
     width,height=img.size
@@ -135,8 +150,11 @@ def encode_png(src,sensitive_info,dst):
         raise ValueError("Unsuported Image mode")
     
     total_pixels=array.size//n
+    capacity_bits=total_pixels*3
 
-    data_bits=list(data)+list(marker_bits())
+    if len(data_bits)>capacity_bits:
+        raise ValueError("Not enough space in the PNG to hide the data - consider compression")
+
     bit_gen= iter(data_bits)
 
     for p in range(total_pixels):
@@ -150,27 +168,36 @@ def encode_png(src,sensitive_info,dst):
     enc_img = Image.fromarray(array.astype('uint8'))
     enc_img.save(dst)
     print("PNG successfully encoded")
-    print((int)(len(data_bits)/8),"bytes encoded")
+    print(f"{len(data_bits)//8} total bytes written [8-byte header][sensitive data]")
     return 
 
 def encode_wav(src,sensitive_info,dst):
     samples, samplerate=sf.read(src,dtype='int16')
 
+    # if stereo, pick first channel (or interleave if desired)
     if samples.ndim > 1:
-        samples=samples[:,0]
+        samples_to_hide=samples[:,0].copy()
+    else:
+        samples_to_hide=samples.copy()
+    
+    data_bits=build_payload_bits(sensitive_info)
 
-    bit_gen=list(file_to_bits(sensitive_info)) + list(marker_bits())
-
-    if len(bit_gen) > len(samples):
+    if len(data_bits) > len(samples_to_hide):
         raise ValueError("Not enough audio data to hide this message")
     
-    samples[:len(bit_gen)] = (samples[:len(bit_gen)] & ~1) | bit_gen
+    samples_to_hide[:len(data_bits)] = (samples_to_hide[:len(data_bits)] & ~1) | np.array(data_bits,dtype=np.int16)
     
-    sf.write(dst,samples,samplerate, subtype='PCM_16')
+    if samples.ndim > 1:
+        encoded_samples=samples.copy()
+        encoded_samples[:,0] = samples_to_hide
+    else:
+        encoded_samples=samples_to_hide
+
+    sf.write(dst,encoded_samples,samplerate, subtype='PCM_16')
 
     print("WAV successfully encoded")
-    print((int)(len(bit_gen)/8),"bytes encoded")
-    return dst
+    print(f"{len(data_bits)//8} total bytes written [8-byte header][sensitive data]")
+    return 
 
 def save_file(dst,file):
     
@@ -225,23 +252,28 @@ def decode(src,dst):
 def decode_png(src,dst):
     img=Image.open(src,'r')
     array=np.array(list(img.getdata()))
-    bits=[]
+    # bits=[]
 
-    for pixel in array:
-        for channel in pixel[:3]:
-            bits.append(channel & 1)
+    if img.mode=='RGB':
+        n=3
+    elif img.mode=='RGBA':
+        n=4
+    else:
+        raise ValueError("Unsupported image mode")
 
-    data_bytes = bytearray()
-    for i in range(0,len(bits),8):
-        byte=0
-        for j in range(8):
-            if i+j < len(bits):
-                byte=(byte<<1)|bits[i+j]
-        data_bytes.append(byte)
+    total_pixels=array.size//n
 
-    marker_index=data_bytes.find(MARKER)
-    if marker_index!=-1:
-        data_bytes=data_bytes[:marker_index]
+    lsb_bits=[]
+    for p in range(total_pixels):
+        for q in range(0,3):
+            lsb_bits.append(array[p][q] & 1)
+
+    header_bits = lsb_bits[:64]
+    size_bytes = int(bits_to_int(header_bits))
+    stored_data_bits = size_bytes*8
+
+    data_bits=lsb_bits[64:64+stored_data_bits]
+    data_bytes=bits_to_bytes(data_bits)
 
     magic=extract_magic(data_bytes[:12]) # calls extract_magic to determine the recovered file type
     dst= dst+"."+magic
@@ -255,21 +287,19 @@ def decode_wav(src,dst):
     samples,_ =sf.read(src,dtype='int16')
 
     if samples.ndim >1:
-        samples=samples[:,0]
+        samples_to_read=samples[:,0]
+    else:
+        samples_to_read=samples
 
-    bits=samples&1
+    lsb_bits=[int(s&1) for s in samples_to_read]
 
-    data_bytes=bytearray()
-    for i in range(0,len(bits),8):
-        byte=0
-        for j in range(8):
-            if i+j<len(bits):
-                byte=(byte<<1)|bits[i+j]
-        data_bytes.append(byte)
-    
-    marker_index=data_bytes.find(MARKER)
-    if marker_index!=-1:
-        data_bytes=data_bytes[:marker_index]
+    header_bits=lsb_bits[:64]
+    size_bytes= int(bits_to_int(header_bits))
+    print(size_bytes)
+    stored_data_bits = size_bytes*8
+
+    data_bits=lsb_bits[64:64+stored_data_bits]
+    data_bytes=bits_to_bytes(data_bits)
 
     magic=extract_magic(data_bytes[:12]) # calls extract_magic to determine the recovered file type
     dst=dst+"."+magic
@@ -306,17 +336,23 @@ def main():
     social=args.social or ""
     if args.encode:
         output=args.output or "encoded"
-        dst = encode(files[0],files[1],output)
+        if len(files):
+            dst = encode(files[0],files[1],output)
+        else:
+            dst = encode("","",output)
         if not social=="":
             post_social(dst)
     elif args.decode:
         output=args.output or "reconstructed"
         if not social=="":
-            # this is where will extract from social
+            # this is where we will extract from social
             print("Not currently supported")
             return
         else:
-            decode(files[0],output)    
+            if len(files):
+                decode(files[0],output)
+            else:
+                decode("",output)    
     return
 
 if __name__== "__main__":
