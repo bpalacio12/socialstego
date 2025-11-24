@@ -187,6 +187,9 @@ def encode_png(src,sensitive_info,dst,bit_count):
     total_pixels=array.size//n
     capacity_bits=total_pixels*3 * bit_count
 
+    print(f"Encoding capacity of wave file: {capacity_bits//8} bytes")
+    print(f"Attempting to encode: {len(data_bits)//8} bytes")
+
     if len(data_bits)>capacity_bits:
         raise ValueError("Not enough space in the PNG to hide the data - consider compression")
 
@@ -214,22 +217,45 @@ def encode_png(src,sensitive_info,dst,bit_count):
     print(f"{len(data_bits)//8} total bytes written")
     return 
 
-def encode_wav(src,sensitive_info,dst):
+def encode_wav(src,sensitive_info,dst,bit_count):
     samples, samplerate=sf.read(src,dtype='int16')
 
     # if stereo, pick first channel (or interleave if desired)
-
     if samples.ndim > 1:
         samples_to_hide=samples[:,0].copy()
     else:
         samples_to_hide=samples.copy()
     
-    data_bits=build_payload_bits(sensitive_info)
+    data_bits=build_payload_bits(sensitive_info,bit_count)
+    data_capacity= ((len(samples_to_hide)-HEADER_SIZE)*bit_count + HEADER_SIZE)
 
-    if len(data_bits) > len(samples_to_hide):
-        raise ValueError("Not enough audio data to hide this message")
+    print(f"Encoding capacity of WAV file: {data_capacity//8} bytes")
+    print(f"Attempting to encode: {len(data_bits)//8} bytes")
+
+    if len(data_bits) > data_capacity:
+
+        print("Not enough audio data to hide this message")
+        exit(2)
     
-    samples_to_hide[:len(data_bits)] = (samples_to_hide[:len(data_bits)] & ~1) | np.array(data_bits,dtype=np.int16)
+    bit_gen = iter(data_bits)
+
+    for i in range(HEADER_SIZE):
+        try:
+            next_bit=next(bit_gen)
+        except StopIteration:
+            break
+        samples_to_hide[i] = (samples_to_hide[i] & ~1) | next_bit 
+
+    for i in range(HEADER_SIZE,len(samples_to_hide)):
+        sample=samples_to_hide[i]
+        for b in range(bit_count):
+            try:
+                next_bit=next(bit_gen)
+            except StopIteration:
+                break
+        
+            sample=(sample & ~(1<<b)) | (next_bit <<b)
+        samples_to_hide[i] = sample
     
     if samples.ndim > 1:
         encoded_samples=samples.copy()
@@ -240,7 +266,7 @@ def encode_wav(src,sensitive_info,dst):
     sf.write(dst,encoded_samples,samplerate, subtype='PCM_16')
 
     print("WAV successfully encoded")
-    print(f"{len(data_bits)//8} total bytes written [8-byte header][sensitive data]")
+    print(f"{len(data_bits)//8} total bytes written")
     return 
 
 def post_social(dst):
@@ -318,7 +344,6 @@ def parse_header_bits(header):
         "encrypted":bool(encrypted),
         "checksum":checksum
     }
-
     return to_return 
 
 def decode_png(src,dst):
@@ -372,15 +397,34 @@ def decode_wav(src,dst):
     else:
         samples_to_read=samples
 
-    lsb_bits=[int(s&1) for s in samples_to_read]
+    header_bits = [int(samples_to_read[i] & 1) for i in range(48)]
 
-    HEADER_SIZE_BITS=lsb_bits[:HEADER_SIZE_BITS]
-    size_bytes= int(bits_to_int(HEADER_SIZE_BITS))
-    print(size_bytes)
-    stored_data_bits = size_bytes*8
+    header_vals=parse_header_bits(header_bits)
+    bit_count = header_vals["bit_count"]
+    payload_size_bytes = header_vals["payload_size"]
+    payload_size_bits = payload_size_bytes * 8
 
-    data_bits=lsb_bits[HEADER_SIZE_BITS:HEADER_SIZE_BITS+stored_data_bits]
-    data_bytes=bits_to_bytes(data_bits)
+    lsb_bits = []
+    # lsb_bits=[int(s&1) for s in samples_to_read]
+
+    # HEADER_SIZE_BITS=lsb_bits[:HEADER_SIZE_BITS]
+    # size_bytes= int(bits_to_int(HEADER_SIZE_BITS))
+    # print(size_bytes)
+    # stored_data_bits = size_bytes*8
+
+    # data_bits=lsb_bits[HEADER_SIZE_BITS:HEADER_SIZE_BITS+stored_data_bits]
+    # data_bytes=bits_to_bytes(data_bits)
+
+    for i in range(HEADER_SIZE, len(samples_to_read)):
+        sample = samples_to_read[i]
+
+        for b in range(bit_count):
+            lsb_bits.append((sample>>b)&1)
+            if len(lsb_bits)==payload_size_bits: break
+        
+        if len(lsb_bits)==payload_size_bits: break
+
+    data_bytes=bits_to_bytes(lsb_bits)
 
     magic=extract_magic(data_bytes[:12]) # calls extract_magic to determine the recovered file type
     dst=dst+"."+magic
