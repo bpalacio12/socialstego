@@ -6,11 +6,17 @@ import argparse
 import soundfile as sf
 import discord
 import json
+import binascii
 from pathlib import Path
 from PIL import Image
 
 LOSSLESS_TYPES=["wav","png"]
 SOCIAL_LIST=["DISCORD","REDDIT","SOUNDCLOUD"]
+HEADER_SIZE_BITS=32
+HEADER_BIT_COUNT=2
+HEADER_FLAGS=2
+HEADER_CHECKSUM=12
+HEADER_SIZE=48
 
 TOKEN=""
 CHANNEL_ID=""
@@ -61,6 +67,7 @@ def parse_args():
     parser.add_argument("-f","--files",required=False,nargs='*',help="Files: encode=source secret | decode=encoded")
     parser.add_argument("-o","--output",required=False,help="Output filename")
     parser.add_argument("-s","--social",required=False,choices=SOCIAL_LIST,type=str.upper,help=f"Choose social media: {SOCIAL_LIST}")
+    parser.add_argument("-b","--bit-count",required=False,type=int,choices=range(1,5),help="User decision for the number of bits to encode within the original file")
 
     args=parser.parse_args()
 
@@ -86,13 +93,30 @@ def file_to_bits(file_path):
             for i in range(7,-1,-1):
                 yield(byte>>i)&1
 
-def build_payload_bits(file_path):
+# TODO: create functions to compress and encrypt 
+
+def build_payload_bits(file_path,bit_count):
     data_bits=list(file_to_bits(file_path))
     size_bytes = len(data_bits) // 8
 
-    header_bits= [(size_bytes >> i) & 1 for i in range(63,-1,-1)]
+    # encoded data size header
+    size_header= [(size_bytes >> i) & 1 for i in range(HEADER_SIZE_BITS-1,-1,-1)]
 
-    return header_bits+list(data_bits)
+    # encoded bit count header
+    bc_map={1:0b00,2:0b01,3:0b10,4:0b11}
+    bit_count_header=[(bc_map[bit_count]>>i) & 1 for i in [1,0]]
+
+    # 2-bit flags compressed & encrypted
+    compressed=False
+    encrypted=False
+    flag_value= (int(compressed)<<1) | int(encrypted)
+    flag_header= [(flag_value >> i) & 1 for i in range(HEADER_FLAGS-1,-1,-1)]
+
+    #checksum bits
+    crc16=binascii.crc_hqx(bytes(data_bits),0)
+    checksum=[(crc16>>i)&1 for i in range(HEADER_CHECKSUM-1,-1,-1)]
+
+    return size_header+bit_count_header+flag_header+checksum+data_bits
 
 def bits_to_int(bits):
     value=0
@@ -106,7 +130,7 @@ def bits_to_bytes(bits):
         for i in range(0, len(bits), 8)
     )
 
-def encode(src,sensitive_info,dst):
+def encode(src,sensitive_info,dst,encoding_bits):
     # ensure source file to encode is correct
     if not src:
         src = select_file("target file")    
@@ -128,15 +152,26 @@ def encode(src,sensitive_info,dst):
         dst=dst.split('.',1)[0]+"."+filetype
 
     if filetype=="png":
-        encode_png(src,sensitive_info,dst)
+        encode_png(src,sensitive_info,dst,encoding_bits)
     elif filetype=="wav":
-        encode_wav(src,sensitive_info,dst)
+        encode_wav(src,sensitive_info,dst,encoding_bits)
     else:
         exit(1)
     return dst
 
-def encode_png(src,sensitive_info,dst):
-    data_bits=build_payload_bits(sensitive_info)
+def encode_png(src,sensitive_info,dst,bit_count):
+    data_bits=build_payload_bits(sensitive_info,bit_count)
+
+    # For DEBUGGING
+    # size_bits = data_bits[:32]
+    # bit_count_bits = data_bits[32:34]
+    # flags_bits = data_bits[34:36]
+    # checksum_bits = data_bits[36:48]
+
+    # print("Payload size bits: ", ''.join(str(b) for b in size_bits),bits_to_int(size_bits))
+    # print("Bit count bits:    ", ''.join(str(b) for b in bit_count_bits),bits_to_int(bit_count_bits))
+    # print("Flags bits:        ", ''.join(str(b) for b in flags_bits),bits_to_int(flags_bits))
+    # print("Checksum bits:     ", ''.join(str(b) for b in checksum_bits),bits_to_int(checksum_bits))
 
     img=Image.open(src, 'r')
     width,height=img.size
@@ -150,31 +185,40 @@ def encode_png(src,sensitive_info,dst):
         raise ValueError("Unsuported Image mode")
     
     total_pixels=array.size//n
-    capacity_bits=total_pixels*3
+    capacity_bits=total_pixels*3 * bit_count
 
     if len(data_bits)>capacity_bits:
         raise ValueError("Not enough space in the PNG to hide the data - consider compression")
 
     bit_gen= iter(data_bits)
 
-    for p in range(total_pixels):
+    for p in range(HEADER_SIZE//3):
         for q in range(0,3):
             try:
-                array[p][q]=(array[p][q] & ~1) | next(bit_gen)
+                array[p][q]=(array[p][q] & ~1) | next(bit_gen) 
             except StopIteration:
                 break
+
+    for p in range(HEADER_SIZE//3,total_pixels):
+        for q in range(0,3):
+            for b in range(bit_count):    
+                try:
+                    array[p][q]=(array[p][q] & ~(1<<b)) | (next(bit_gen) <<b)
+                except StopIteration:
+                    break
 
     array=array.reshape(height,width,n)
     enc_img = Image.fromarray(array.astype('uint8'))
     enc_img.save(dst)
     print("PNG successfully encoded")
-    print(f"{len(data_bits)//8} total bytes written [8-byte header][sensitive data]")
+    print(f"{len(data_bits)//8} total bytes written")
     return 
 
 def encode_wav(src,sensitive_info,dst):
     samples, samplerate=sf.read(src,dtype='int16')
 
     # if stereo, pick first channel (or interleave if desired)
+
     if samples.ndim > 1:
         samples_to_hide=samples[:,0].copy()
     else:
@@ -198,10 +242,6 @@ def encode_wav(src,sensitive_info,dst):
     print("WAV successfully encoded")
     print(f"{len(data_bits)//8} total bytes written [8-byte header][sensitive data]")
     return 
-
-def save_file(dst,file):
-    
-    return
 
 def post_social(dst):
     config=load_config()
@@ -249,10 +289,41 @@ def decode(src,dst):
     else:
         print("decode not possible for provided file format")
 
+def parse_header_bits(header):
+    if len(header)!=HEADER_SIZE:
+        print(len(header))
+        raise ValueError("Header size is not expected value")
+    
+    size_bits = header[:HEADER_SIZE_BITS]
+    bit_count_bits = header[HEADER_SIZE_BITS:HEADER_SIZE_BITS+HEADER_BIT_COUNT]
+    flag_bits = header[HEADER_SIZE_BITS+HEADER_BIT_COUNT:HEADER_SIZE_BITS+HEADER_BIT_COUNT+HEADER_FLAGS]
+    checksum_bits = header[HEADER_SIZE_BITS+HEADER_BIT_COUNT+HEADER_FLAGS:HEADER_SIZE_BITS+HEADER_BIT_COUNT+HEADER_FLAGS+HEADER_CHECKSUM]
+
+    payload_size_bytes=bits_to_int(size_bits) # payload size in bytes
+
+    rev_bc_map = {0b00: 1, 0b01: 2, 0b10: 3, 0b11: 4}
+    bit_count = rev_bc_map[bits_to_int(bit_count_bits)] # bit count specifier
+
+    flags_value=bits_to_int(flag_bits) # Flag intager
+
+    checksum=bits_to_int(checksum_bits) # checksum
+
+    compressed = (flags_value >> 1) & 1
+    encrypted = flags_value &1
+
+    to_return={
+        "payload_size": payload_size_bytes,
+        "bit_count":bit_count,
+        "compressed": bool(compressed),
+        "encrypted":bool(encrypted),
+        "checksum":checksum
+    }
+
+    return to_return 
+
 def decode_png(src,dst):
     img=Image.open(src,'r')
     array=np.array(list(img.getdata()))
-    # bits=[]
 
     if img.mode=='RGB':
         n=3
@@ -263,17 +334,27 @@ def decode_png(src,dst):
 
     total_pixels=array.size//n
 
-    lsb_bits=[]
-    for p in range(total_pixels):
+    header_bits=[]
+    for p in range(HEADER_SIZE//3):
         for q in range(0,3):
-            lsb_bits.append(array[p][q] & 1)
+            header_bits.append(array[p][q] & 1)
+            if len(header_bits)==HEADER_SIZE: break
+        if len(header_bits)==HEADER_SIZE: break
 
-    header_bits = lsb_bits[:64]
-    size_bytes = int(bits_to_int(header_bits))
-    stored_data_bits = size_bytes*8
+    header_vals=parse_header_bits(header_bits)
+    bit_count=header_vals["bit_count"]
+    payload_size_bits = header_vals["payload_size"]*8
 
-    data_bits=lsb_bits[64:64+stored_data_bits]
-    data_bytes=bits_to_bytes(data_bits)
+    lsb_bits=[]
+    for p in range(HEADER_SIZE//3,total_pixels):
+        for q in range(0,3):
+            for b in range(bit_count):
+                lsb_bits.append((array[p][q]>>b) & 1)
+                if len(lsb_bits)==payload_size_bits: break
+            if len(lsb_bits)==payload_size_bits: break
+        if len(lsb_bits)==payload_size_bits: break
+                
+    data_bytes=bits_to_bytes(lsb_bits)
 
     magic=extract_magic(data_bytes[:12]) # calls extract_magic to determine the recovered file type
     dst= dst+"."+magic
@@ -293,12 +374,12 @@ def decode_wav(src,dst):
 
     lsb_bits=[int(s&1) for s in samples_to_read]
 
-    header_bits=lsb_bits[:64]
-    size_bytes= int(bits_to_int(header_bits))
+    HEADER_SIZE_BITS=lsb_bits[:HEADER_SIZE_BITS]
+    size_bytes= int(bits_to_int(HEADER_SIZE_BITS))
     print(size_bytes)
     stored_data_bits = size_bytes*8
 
-    data_bits=lsb_bits[64:64+stored_data_bits]
+    data_bits=lsb_bits[HEADER_SIZE_BITS:HEADER_SIZE_BITS+stored_data_bits]
     data_bytes=bits_to_bytes(data_bits)
 
     magic=extract_magic(data_bytes[:12]) # calls extract_magic to determine the recovered file type
@@ -334,12 +415,13 @@ def main():
     load_config()
     files=args.files or []
     social=args.social or ""
+    encoding_bits=args.bit_count or 1
     if args.encode:
         output=args.output or "encoded"
         if len(files):
-            dst = encode(files[0],files[1],output)
+            dst = encode(files[0],files[1],output,encoding_bits)
         else:
-            dst = encode("","",output)
+            dst = encode("","",output,encoding_bits)
         if not social=="":
             post_social(dst)
     elif args.decode:
