@@ -7,6 +7,7 @@ import soundfile as sf
 import discord
 import json
 import binascii
+import warnings
 from pathlib import Path
 from PIL import Image
 
@@ -381,6 +382,11 @@ def decode_png(src,dst):
                 
     data_bytes=bits_to_bytes(lsb_bits)
 
+    if not verify_checksum(lsb_bits,header_vals["checksum"]):
+        warnings.warn("Checksum of extracted file is not consistent with expect value")
+    else:
+        print("Extracted Checksum consistent with calculated")
+
     magic=extract_magic(data_bytes[:12]) # calls extract_magic to determine the recovered file type
     dst= dst+"."+magic
 
@@ -405,16 +411,6 @@ def decode_wav(src,dst):
     payload_size_bits = payload_size_bytes * 8
 
     lsb_bits = []
-    # lsb_bits=[int(s&1) for s in samples_to_read]
-
-    # HEADER_SIZE_BITS=lsb_bits[:HEADER_SIZE_BITS]
-    # size_bytes= int(bits_to_int(HEADER_SIZE_BITS))
-    # print(size_bytes)
-    # stored_data_bits = size_bytes*8
-
-    # data_bits=lsb_bits[HEADER_SIZE_BITS:HEADER_SIZE_BITS+stored_data_bits]
-    # data_bytes=bits_to_bytes(data_bits)
-
     for i in range(HEADER_SIZE, len(samples_to_read)):
         sample = samples_to_read[i]
 
@@ -426,6 +422,11 @@ def decode_wav(src,dst):
 
     data_bytes=bits_to_bytes(lsb_bits)
 
+    if not verify_checksum(lsb_bits,header_vals["checksum"]):
+        warnings.warn("Checksum of extracted file is not consistent with expect value")
+    else:
+        print("Extracted Checksum consistent with calculated")
+
     magic=extract_magic(data_bytes[:12]) # calls extract_magic to determine the recovered file type
     dst=dst+"."+magic
 
@@ -434,6 +435,13 @@ def decode_wav(src,dst):
     
     print(f"File successfully reconstructed as {dst}")    
     return
+
+def verify_checksum(data_bits, expected_checksum):
+    crc16=binascii.crc_hqx(bytes(data_bits),0)
+    mask=(1<<HEADER_CHECKSUM)-1
+
+    calculated=crc16 & mask
+    return calculated==expected_checksum
 
 def verify_lossless(file_path):
     if file_path=="": # if file_path is null
@@ -471,7 +479,7 @@ def main():
     elif args.decode:
         output=args.output or "reconstructed"
         if not social=="":
-            # this is where we will extract from social
+            # this is where we will extract from social media
             print("Not currently supported")
             return
         else:
