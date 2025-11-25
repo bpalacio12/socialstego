@@ -9,18 +9,23 @@ import json
 import binascii
 import warnings
 from pathlib import Path
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from PIL import Image
 
 LOSSLESS_TYPES=["wav","png"]
 SOCIAL_LIST=["DISCORD","REDDIT","SOUNDCLOUD"]
 
-PNG_ALLOWED_MODES= {"RGB", "RGBA", "L"}
+PNG_ALLOWED_MODES= {"RGB", "RGBA"}
 
 
 HEADER_SIZE_BITS=32
 HEADER_BIT_COUNT=2
 HEADER_FLAGS=2
 HEADER_CHECKSUM=12
+HEADER_ENCRYPTED_KEY_SIZE=256 # using AES256
+HEADER_IV_SIZE=16
 HEADER_SIZE=48
 
 TOKEN=""
@@ -73,6 +78,7 @@ def parse_args():
     parser.add_argument("-o","--output",required=False,help="Output filename")
     parser.add_argument("-s","--social",required=False,choices=SOCIAL_LIST,type=str.upper,help=f"Choose social media: {SOCIAL_LIST}")
     parser.add_argument("-b","--bit-count",required=False,type=int,choices=range(1,5),help="User decision for the number of bits to encode within the original file")
+    parser.add_argument("--encrypt",required=False,action="store_true",help="Enable payload encryption (AES + recipients private key)")
 
     args=parser.parse_args()
 
@@ -97,10 +103,50 @@ def file_to_bits(file_path):
         for byte in f.read():
             for i in range(7,-1,-1):
                 yield(byte>>i)&1
+                
+def bytes_to_bits(byte_seq):
+    bits=[]
+    for b in byte_seq:
+        for i in reversed(range(8)):
+            bits.append((b>>i)&1)
+    return bits
 
-# TODO: create functions to compress and encrypt 
+# pull recipients public key from json
+# create aes-256 key 
+# encrypt data_bits with aes-256 key
+# encrypt aes-256 key with recipient public key 
+# format encrypted key for transport
+# aes_key=os.urandom(32)
+# iv=os.urandom(16)
+def encrypt_payload(data_bits):
+    payload_bytes=bytes(bits_to_bytes(data_bits))
+    aes_key=os.urandom(32)
+    iv=os.urandom(16)
 
-def build_payload_bits(file_path,bit_count):
+    with open("example_rsa_key_pub.pem", "rb") as f:
+        public_key=serialization.load_pem_public_key(f.read())
+    
+    cipher=Cipher(algorithms.AES(aes_key),modes.OFB(iv))
+    encryptor=cipher.encryptor()
+    encrypted_bytes=encryptor.update(payload_bytes)+encryptor.finalize()
+
+    encrypted_key_bytes=public_key.encrypt(
+        aes_key,
+        padding.OAEP(
+            mgf=padding.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(),
+            label=None
+        )
+    )
+    encrypted_key_bits=bytes_to_bits(encrypted_key_bytes)
+    encrypted_data_bits=bytes_to_bits(encrypted_bytes)
+
+    iv_bits = bytes_to_bits(iv)
+    encrypted_data_bits=iv_bits+encrypted_data_bits
+
+    return encrypted_key_bits, encrypted_data_bits
+
+def build_payload_bits(file_path,bit_count,encrypt):
     data_bits=list(file_to_bits(file_path))
     size_bytes = len(data_bits) // 8
 
@@ -113,9 +159,13 @@ def build_payload_bits(file_path,bit_count):
 
     # 2-bit flags compressed & encrypted
     compressed=False
-    encrypted=False
+    encrypted=encrypt
     flag_value= (int(compressed)<<1) | int(encrypted)
     flag_header= [(flag_value >> i) & 1 for i in range(HEADER_FLAGS-1,-1,-1)]
+
+    if encrypt:
+        encrypted_key_bits,data_bits = encrypt_payload(data_bits)
+        data_bits=encrypted_key_bits+data_bits
 
     #checksum bits
     crc16=binascii.crc_hqx(bytes(data_bits),0)
@@ -135,7 +185,7 @@ def bits_to_bytes(bits):
         for i in range(0, len(bits), 8)
     )
 
-def encode(src,sensitive_info,dst,encoding_bits):
+def encode(src,sensitive_info,dst,encoding_bits,encrypt):
     # ensure source file to encode is correct
     if not src:
         src = select_file("target file")    
@@ -156,27 +206,36 @@ def encode(src,sensitive_info,dst,encoding_bits):
     else:
         dst=dst.split('.',1)[0]+"."+filetype
 
+    if encrypt:
+        print("Encryption mode specified")
+
     if filetype=="png":
-        encode_png(src,sensitive_info,dst,encoding_bits)
+        encode_png(src,sensitive_info,dst,encoding_bits,encrypt)
     elif filetype=="wav":
-        encode_wav(src,sensitive_info,dst,encoding_bits)
+        encode_wav(src,sensitive_info,dst,encoding_bits,encrypt)
     else:
         exit(1)
     return dst
 
-def encode_png(src,sensitive_info,dst,bit_count):
-    data_bits=build_payload_bits(sensitive_info,bit_count)
+def encode_png(src,sensitive_info,dst,bit_count,encrypt):
+    data_bits=build_payload_bits(sensitive_info,bit_count,encrypt)
 
     # For DEBUGGING
     # size_bits = data_bits[:32]
     # bit_count_bits = data_bits[32:34]
     # flags_bits = data_bits[34:36]
     # checksum_bits = data_bits[36:48]
+    # if encrypt:
+    #     encrypt_key_bits = data_bits[48:304]
 
     # print("Payload size bits: ", ''.join(str(b) for b in size_bits),bits_to_int(size_bits))
     # print("Bit count bits:    ", ''.join(str(b) for b in bit_count_bits),bits_to_int(bit_count_bits))
     # print("Flags bits:        ", ''.join(str(b) for b in flags_bits),bits_to_int(flags_bits))
     # print("Checksum bits:     ", ''.join(str(b) for b in checksum_bits),bits_to_int(checksum_bits))
+    # if encrypt:
+    #     print("Encrypted key:     ", ''.join(str(b) for b in encrypt_key_bits),bits_to_int(encrypt_key_bits))    
+
+    # exit(0)
 
     img=Image.open(src, 'r')
     width,height=img.size
@@ -229,7 +288,7 @@ def encode_png(src,sensitive_info,dst,bit_count):
     print(f"{len(data_bits)//8} total bytes written")
     return 
 
-def encode_wav(src,sensitive_info,dst,bit_count):
+def encode_wav(src,sensitive_info,dst,bit_count,encrypt):
     samples, samplerate=sf.read(src,dtype='int16')
 
     # if stereo, pick first channel (or interleave if desired)
@@ -238,7 +297,7 @@ def encode_wav(src,sensitive_info,dst,bit_count):
     else:
         samples_to_hide=samples.copy()
     
-    data_bits=build_payload_bits(sensitive_info,bit_count)
+    data_bits=build_payload_bits(sensitive_info,bit_count,encrypt)
     data_capacity= ((len(samples_to_hide)-HEADER_SIZE)*bit_count + HEADER_SIZE)
 
     print(f"Encoding capacity of WAV file: {data_capacity//8} bytes")
@@ -358,6 +417,32 @@ def parse_header_bits(header):
     }
     return to_return 
 
+def decrypt_payload(encrypted_key_bits,encrypted_data_bits):
+    encrypted_key_bytes=bits_to_bytes(encrypted_key_bits)
+    encrypted_data_bytes=bits_to_bytes(encrypted_data_bits)
+
+    with open("example_rsa_key","rb") as f:
+        private_key=serialization.load_pem_private_key(f.read(),password=None)
+    
+    aes_key=private_key.decrypt(
+        encrypted_key_bytes,
+        padding.OAEP(
+            mgf=padding.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(),
+            label=None
+        )
+    )
+
+    iv =encrypted_data_bytes[:16]
+    ciphertext=encrypted_data_bytes[16:]
+
+    cipher=Cipher(algorithms.AES(aes_key),modes.OFB(iv))
+    decryptor=cipher.decryptor()
+    decrypted_bytes = decryptor.update(ciphertext)+decryptor.finalize()
+
+    decrypted_bits = bytes_to_bits(decrypted_bytes)
+    return decrypted_bits
+
 def decode_png(src,dst):
     img=Image.open(src,'r')
     array=np.array(list(img.getdata()))
@@ -380,7 +465,10 @@ def decode_png(src,dst):
 
     header_vals=parse_header_bits(header_bits)
     bit_count=header_vals["bit_count"]
-    payload_size_bits = header_vals["payload_size"]*8
+    if header_vals["encrypted"]:
+        payload_size_bits = (HEADER_ENCRYPTED_KEY_SIZE+HEADER_IV_SIZE+header_vals["payload_size"])*8
+    else:
+        payload_size_bits = header_vals["payload_size"]*8
 
     lsb_bits=[]
     for p in range(HEADER_SIZE//3,total_pixels):
@@ -390,13 +478,16 @@ def decode_png(src,dst):
                 if len(lsb_bits)==payload_size_bits: break
             if len(lsb_bits)==payload_size_bits: break
         if len(lsb_bits)==payload_size_bits: break
-                
-    data_bytes=bits_to_bytes(lsb_bits)
-
+    
     if not verify_checksum(lsb_bits,header_vals["checksum"]):
         warnings.warn("Checksum of extracted file is not consistent with expect value/nExtraction still completed")
     else:
         print("Extracted Checksum consistent with calculated")
+
+    if header_vals["encrypted"]:
+        lsb_bits=decrypt_payload(lsb_bits[:2048],lsb_bits[2048:])
+                
+    data_bytes=bits_to_bytes(lsb_bits)
 
     magic=extract_magic(data_bytes[:12]) # calls extract_magic to determine the recovered file type
     dst= dst+"."+magic
@@ -482,9 +573,9 @@ def main():
     if args.encode:
         output=args.output or "encoded"
         if len(files):
-            dst = encode(files[0],files[1],output,encoding_bits)
+            dst = encode(files[0],files[1],output,encoding_bits,args.encrypt)
         else:
-            dst = encode("","",output,encoding_bits)
+            dst = encode("","",output,encoding_bits,args.encrypt)
         if not social=="":
             post_social(dst)
     elif args.decode:
