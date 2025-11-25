@@ -13,6 +13,10 @@ from PIL import Image
 
 LOSSLESS_TYPES=["wav","png"]
 SOCIAL_LIST=["DISCORD","REDDIT","SOUNDCLOUD"]
+
+PNG_ALLOWED_MODES= {"RGB", "RGBA", "L"}
+
+
 HEADER_SIZE_BITS=32
 HEADER_BIT_COUNT=2
 HEADER_FLAGS=2
@@ -178,17 +182,24 @@ def encode_png(src,sensitive_info,dst,bit_count):
     width,height=img.size
     array=np.array(list(img.getdata()))
 
+    if img.mode not in PNG_ALLOWED_MODES:
+        img = img.convert("RGB")
+
     if img.mode=='RGB':
         n=3
     elif img.mode=='RGBA':
         n=4
+    elif img.mode=='P':
+        print("Image type Pallete not supported")
+        exit(1)
     else:
+        print(img.mode)
         raise ValueError("Unsuported Image mode")
     
     total_pixels=array.size//n
     capacity_bits=total_pixels*3 * bit_count
 
-    print(f"Encoding capacity of wave file: {capacity_bits//8} bytes")
+    print(f"Encoding capacity of PNG: {capacity_bits//8} bytes")
     print(f"Attempting to encode: {len(data_bits)//8} bytes")
 
     if len(data_bits)>capacity_bits:
@@ -383,7 +394,7 @@ def decode_png(src,dst):
     data_bytes=bits_to_bytes(lsb_bits)
 
     if not verify_checksum(lsb_bits,header_vals["checksum"]):
-        warnings.warn("Checksum of extracted file is not consistent with expect value")
+        warnings.warn("Checksum of extracted file is not consistent with expect value/nExtraction still completed")
     else:
         print("Extracted Checksum consistent with calculated")
 
@@ -423,7 +434,7 @@ def decode_wav(src,dst):
     data_bytes=bits_to_bytes(lsb_bits)
 
     if not verify_checksum(lsb_bits,header_vals["checksum"]):
-        warnings.warn("Checksum of extracted file is not consistent with expect value")
+        warnings.warn("Checksum of extracted file is not consistent with expect value/nExtraction still completed")
     else:
         print("Extracted Checksum consistent with calculated")
 
