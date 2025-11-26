@@ -1,3 +1,8 @@
+# SocialStego - A new steganography tool for today's social media landscape
+# Developed by ParaIIeI
+# current release V 0.8 
+# 11/2025
+
 import tkinter as tk
 from tkinter import filedialog
 import os
@@ -14,23 +19,22 @@ from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from PIL import Image
 
+# Static reference global lists
 LOSSLESS_TYPES=["wav","png"]
 SOCIAL_LIST=["DISCORD","REDDIT","SOUNDCLOUD"]
-
 PNG_ALLOWED_MODES= {"RGB", "RGBA"}
 
+# Static reference header field sizes 
+HEADER_SIZE_BITS=32                 # Denotes the size of the payload data, does not change if the file is encrypted 
+HEADER_BIT_COUNT=2                  # Denotes the number of bits to encode per pixel/frame of the source file
+HEADER_FLAGS=2                      # References the number of bits used for flags that denote encryption or compression of the encoded data
+HEADER_CHECKSUM=12                  # Number of bits attributed to the checksum of the encoded data
+HEADER_SIZE=48                      # Protocol header size for the required header fields
 
-HEADER_SIZE_BITS=32
-HEADER_BIT_COUNT=2
-HEADER_FLAGS=2
-HEADER_CHECKSUM=12
-HEADER_ENCRYPTED_KEY_SIZE=256 # using AES256
-HEADER_IV_SIZE=16
-HEADER_SIZE=48
+HEADER_ENCRYPTED_KEY_SIZE=256       # Size of the encrypted key (AES 256) either 256 bits/32 bytes when unencrypted or 256 bytes if encrypted with RSA pub key
+HEADER_IV_SIZE=16                   # Size of the IV for encryption, IV is sent along with the encrypted data when encoded
 
-TOKEN=""
-CHANNEL_ID=""
-
+# Social Media reference values for social media selection``
 DISCORD_REF=1
 REDDIT_REF=2
 SOUNDCLOUD_REF=3
@@ -43,7 +47,7 @@ magic_numbers = {
     "wav": bytes.fromhex("524946460000000057415645")
 }
 
-# loads the config file supplied in the same directory with name config.json
+# loads the config file supplied in the same directory with name config.json to be used for social media api key extraction
 def load_config(path="config.json"):
     config_path=Path(path)
     if not config_path.exists():
@@ -52,6 +56,7 @@ def load_config(path="config.json"):
     with open(config_path, "r",encoding="utf-8") as f:
         return json.load(f)
     
+# Function for setting the token and channel for the selected social media platform used for distribution
 def set_token_channel(config,choice):
     match choice:
         case _ if choice==DISCORD_REF:
@@ -65,9 +70,10 @@ def set_token_channel(config,choice):
             return
 
 # Argument parsing to determine either encoding or decoding actions 
-# Also specify files, output file, and social media to extract from
+# Also specify files, output file, and social media to post to
 def parse_args():
     parser=argparse.ArgumentParser(description="Stegonagraphy Encoder/Decoder script")
+
     # required flags
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("-e", "--encode", action="store_true", help="Run in encode mode")
@@ -82,6 +88,7 @@ def parse_args():
 
     args=parser.parse_args()
 
+    # File specification changes based on encrypt/decrypt mode
     if args.encode:
         if args.files and len(args.files) !=2:
             parser.error("Encoding requires -f <source> <secret_info> (2 files)")
@@ -92,18 +99,20 @@ def parse_args():
 
     return args
 
-# Uses the tkinter interface to provide the user with the ability to select the desired files if none are specified
+# Uses the tkinter interface to provide the user with the ability to select the desired files if none are specified in terminal
 def select_file(title):
     root = tk.Tk()
     root.withdraw()  # Hide the root window
     return filedialog.askopenfilename(initialdir=os.path.expanduser("~/Documents"),title=title)
 
+# Convert the given file into a bitstream for the encoding process
 def file_to_bits(file_path):
     with open(file_path, "rb") as f:
         for byte in f.read():
             for i in range(7,-1,-1):
                 yield(byte>>i)&1
-                
+
+# Helper function to convert byte sequence to a bitstream
 def bytes_to_bits(byte_seq):
     bits=[]
     for b in byte_seq:
@@ -111,13 +120,25 @@ def bytes_to_bits(byte_seq):
             bits.append((b>>i)&1)
     return bits
 
-# pull recipients public key from json
-# create aes-256 key 
-# encrypt data_bits with aes-256 key
-# encrypt aes-256 key with recipient public key 
-# format encrypted key for transport
-# aes_key=os.urandom(32)
-# iv=os.urandom(16)
+# Helper function to convert bit stream to corresponding integer (used in debugging)
+def bits_to_int(bits):
+    value=0
+    for b in bits:
+        value=(value<<1) | b
+    return value
+
+# Helper function for converting bitstream into bytestream
+def bits_to_bytes(bits):
+    return bytes(
+        sum((bit << (7 - j)) for j, bit in enumerate(bits[i:i+8]))
+        for i in range(0, len(bits), 8)
+    )
+
+# when the 'encrypt' flag is specified, this function will run through the process
+# of generating a random aes key, random initialization vector, and encrypts the 
+# payload bytes (being the 'sensitive information'). Additionally, the AES key is
+# encrypted using the recipient's public key solidifying the hybrid encryption scheme
+# Once complete returns both the encrypted AES key and the encrypted payload data
 def encrypt_payload(data_bits):
     payload_bytes=bytes(bits_to_bytes(data_bits))
     aes_key=os.urandom(32)
@@ -126,10 +147,11 @@ def encrypt_payload(data_bits):
     with open("example_rsa_key_pub.pem", "rb") as f:
         public_key=serialization.load_pem_public_key(f.read())
     
-    cipher=Cipher(algorithms.AES(aes_key),modes.OFB(iv))
-    encryptor=cipher.encryptor()
-    encrypted_bytes=encryptor.update(payload_bytes)+encryptor.finalize()
+    cipher=Cipher(algorithms.AES(aes_key),modes.OFB(iv)) # declares the symmetric encryption cipher and the encryption mode
+    encryptor=cipher.encryptor() # encryptor object 
+    encrypted_bytes=encryptor.update(payload_bytes)+encryptor.finalize() # encrypts payload
 
+    # encrypts the aes encryption key using the recipient's public key
     encrypted_key_bytes=public_key.encrypt(
         aes_key,
         padding.OAEP(
@@ -141,11 +163,16 @@ def encrypt_payload(data_bits):
     encrypted_key_bits=bytes_to_bits(encrypted_key_bytes)
     encrypted_data_bits=bytes_to_bits(encrypted_bytes)
 
+    # prepends the IV used for AES to the encrypted bytes to allow decryption for recipient
     iv_bits = bytes_to_bits(iv)
     encrypted_data_bits=iv_bits+encrypted_data_bits
 
     return encrypted_key_bits, encrypted_data_bits
 
+# builds the payload to be encoded into the source file, generating the required
+# header [size bytes][bit count][flags][checksome][data]
+# if encrypted flag is set to True, will encrypt the data payload data and prepend
+# the payload data with the encrypted aes key and the IV used in encryption
 def build_payload_bits(file_path,bit_count,encrypt):
     data_bits=list(file_to_bits(file_path))
     size_bytes = len(data_bits) // 8
@@ -163,6 +190,7 @@ def build_payload_bits(file_path,bit_count,encrypt):
     flag_value= (int(compressed)<<1) | int(encrypted)
     flag_header= [(flag_value >> i) & 1 for i in range(HEADER_FLAGS-1,-1,-1)]
 
+    # if encryption flag is True
     if encrypt:
         encrypted_key_bits,data_bits = encrypt_payload(data_bits)
         data_bits=encrypted_key_bits+data_bits
@@ -173,18 +201,10 @@ def build_payload_bits(file_path,bit_count,encrypt):
 
     return size_header+bit_count_header+flag_header+checksum+data_bits
 
-def bits_to_int(bits):
-    value=0
-    for b in bits:
-        value=(value<<1) | b
-    return value
-
-def bits_to_bytes(bits):
-    return bytes(
-        sum((bit << (7 - j)) for j, bit in enumerate(bits[i:i+8]))
-        for i in range(0, len(bits), 8)
-    )
-
+# Top level encode function first verifies the source and sensitive infor files and
+# file types, and identifies the destination for the encoded source file to be saved
+# Then based on the source file type, will run through the encoding procedures for 
+# that source file file-type
 def encode(src,sensitive_info,dst,encoding_bits,encrypt):
     # ensure source file to encode is correct
     if not src:
@@ -209,6 +229,7 @@ def encode(src,sensitive_info,dst,encoding_bits,encrypt):
     if encrypt:
         print("Encryption mode specified")
 
+    # execute the encode function based on the source file type
     if filetype=="png":
         encode_png(src,sensitive_info,dst,encoding_bits,encrypt)
     elif filetype=="wav":
@@ -217,6 +238,9 @@ def encode(src,sensitive_info,dst,encoding_bits,encrypt):
         exit(1)
     return dst
 
+# Function for encoding the data from the 'sensitive_info' file into the source file
+# and saving this information into the specified dsetination. Functionality changes
+# based on the specified bitcount and encryption flag when executed from terminal
 def encode_png(src,sensitive_info,dst,bit_count,encrypt):
     data_bits=build_payload_bits(sensitive_info,bit_count,encrypt)
 
@@ -241,23 +265,24 @@ def encode_png(src,sensitive_info,dst,bit_count,encrypt):
     width,height=img.size
     array=np.array(list(img.getdata()))
 
+    # if the png type is not that of RGB or RGBA will convert to RGB for encoding purposes
+    # Types not included in PNG_ALLOWED_MODES are not supported without conversion
     if img.mode not in PNG_ALLOWED_MODES:
         img = img.convert("RGB")
 
+    # mode is necessary for determining pixel write capabilities and saving 
     if img.mode=='RGB':
         n=3
     elif img.mode=='RGBA':
         n=4
-    elif img.mode=='P':
-        print("Image type Pallete not supported")
-        exit(1)
     else:
         print(img.mode)
         raise ValueError("Unsuported Image mode")
     
+    # specifies the available encoding space in the source file and the attempted
+    # size of encoded data
     total_pixels=array.size//n
     capacity_bits=total_pixels*3 * bit_count
-
     print(f"Encoding capacity of PNG: {capacity_bits//8} bytes")
     print(f"Attempting to encode: {len(data_bits)//8} bytes")
 
@@ -266,6 +291,8 @@ def encode_png(src,sensitive_info,dst,bit_count,encrypt):
 
     bit_gen= iter(data_bits)
 
+    # because the recipient will not be able to determine bit-count without the header
+    # extraction, the header will always be encoded with 1-bit LSB encoding
     for p in range(HEADER_SIZE//3):
         for q in range(0,3):
             try:
@@ -273,6 +300,8 @@ def encode_png(src,sensitive_info,dst,bit_count,encrypt):
             except StopIteration:
                 break
 
+    # once the header is written, the payload data can be written to the source
+    # file using the specified bit-count from the terminal
     for p in range(HEADER_SIZE//3,total_pixels):
         for q in range(0,3):
             for b in range(bit_count):    
@@ -281,6 +310,7 @@ def encode_png(src,sensitive_info,dst,bit_count,encrypt):
                 except StopIteration:
                     break
 
+    # shape new array with encoded information and save to specified destination
     array=array.reshape(height,width,n)
     enc_img = Image.fromarray(array.astype('uint8'))
     enc_img.save(dst)
@@ -340,28 +370,38 @@ def encode_wav(src,sensitive_info,dst,bit_count,encrypt):
     print(f"{len(data_bits)//8} total bytes written")
     return 
 
+# Top level function for posting encoded file directly to social media platforms, will extract necessary tokens and keys from the 
+# associated config.json file in the same directory as the application and will call the associated social media function based
+# on the social media type specified at the terminal
+# LIMITATION: currently discord is the only supported social media posting site will expand in the future
 def post_social(dst):
     config=load_config()
-    TOKEN,CHANNEL_ID = set_token_channel(config,1)
-    discord_post(TOKEN,CHANNEL_ID,dst)
+    token,channel_id = set_token_channel(config,1)
+    discord_post(token,channel_id,dst)
     
-def discord_post(TOKEN, CHANNEL_ID,dst):
+# Function that performs the process of logging into Discord using the associated token and channel_id. Then
+# posts the newly created encoded file along with a user generated message to accompany the post
+def discord_post(token,channel_id,dst):
     intents=discord.Intents.default()
     client=discord.Client(intents=intents)
     print(dst)
     @client.event
     async def on_ready():
         print(f"logged in as {client.user}")
-        channel = client.get_channel(CHANNEL_ID)
+        message=input("Message to accompany post: ")
+        channel = client.get_channel(channel_id)
         if channel:
-            await channel.send(content="This is a test",file=discord.File(dst))
-            print(f"Message sent to channel {CHANNEL_ID}")
+            await channel.send(content=message,file=discord.File(dst))
+            print(f"Message sent to channel {channel_id}")
         else:
-            print(f"channel with ID: {CHANNEL_ID}, not found")
+            print(f"channel with ID: {channel_id}, not found")
             return
         await client.close()
-    client.run(TOKEN)
+    client.run(token)
 
+# Top level decode function starts by determining if the source file is defined and is of the correct file type format, also ensuring that the 
+# destination is specified for the extracted data to be saved to. Once all files are verified, calls the assoicated decoding function based on 
+# the file type of the source file
 def decode(src,dst):
     # ensure correct source file
     if not src:
@@ -379,6 +419,7 @@ def decode(src,dst):
     else:
         dst=dst.split('.',1)[0]
 
+    # calls the correct decoding funciton based on the source file file-type
     if filetype=="png":
         decode_png(src,dst)
     elif filetype=="wav":
@@ -510,7 +551,11 @@ def decode_wav(src,dst):
     header_vals=parse_header_bits(header_bits)
     bit_count = header_vals["bit_count"]
     payload_size_bytes = header_vals["payload_size"]
-    payload_size_bits = payload_size_bytes * 8
+    encrypted=header_vals["encrypted"]
+    if encrypted:
+        payload_size_bits = (payload_size_bytes+HEADER_IV_SIZE+HEADER_ENCRYPTED_KEY_SIZE)*8
+    else:
+        payload_size_bits = payload_size_bytes * 8
 
     lsb_bits = []
     for i in range(HEADER_SIZE, len(samples_to_read)):
@@ -522,12 +567,15 @@ def decode_wav(src,dst):
         
         if len(lsb_bits)==payload_size_bits: break
 
-    data_bytes=bits_to_bytes(lsb_bits)
-
     if not verify_checksum(lsb_bits,header_vals["checksum"]):
         warnings.warn("Checksum of extracted file is not consistent with expect value/nExtraction still completed")
     else:
         print("Extracted Checksum consistent with calculated")
+
+    if encrypted:
+        lsb_bits=decrypt_payload(lsb_bits[:2048],lsb_bits[2048:])
+
+    data_bytes=bits_to_bytes(lsb_bits)
 
     magic=extract_magic(data_bytes[:12]) # calls extract_magic to determine the recovered file type
     dst=dst+"."+magic
