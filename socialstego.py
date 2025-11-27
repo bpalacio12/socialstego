@@ -138,7 +138,7 @@ def bytes_to_bits(byte_seq):
             bits.append((b>>i)&1)
     return bits
 
-# Helper function to convert bit stream to corresponding integer (used in debugging)
+# Helper function to convert bit stream to corresponding integer (used for debugging)
 def bits_to_int(bits):
     value=0
     for b in bits:
@@ -155,7 +155,7 @@ def bits_to_bytes(bits):
 # when the 'encrypt' flag is specified, this function will run through the process
 # of generating a random aes key, random initialization vector, and encrypts the 
 # payload bytes (being the 'sensitive information'). Additionally, the AES key is
-# encrypted using the recipient's public key solidifying the hybrid encryption scheme
+# encrypted using the recipient's public key solidifying the hybrid encryption scheme.
 # Once complete returns both the encrypted AES key and the encrypted payload data
 def encrypt_payload(data_bits):
     payload_bytes=bytes(bits_to_bytes(data_bits))
@@ -280,8 +280,6 @@ def encode_png(src,sensitive_info,dst,bit_count,encrypt):
     # exit(0)
 
     img=Image.open(src, 'r')
-    width,height=img.size
-    array=np.array(list(img.getdata()))
 
     # if the png type is not that of RGB or RGBA will convert to RGB for encoding purposes
     # Types not included in PNG_ALLOWED_MODES are not supported without conversion
@@ -297,6 +295,10 @@ def encode_png(src,sensitive_info,dst,bit_count,encrypt):
         print(img.mode)
         raise ValueError("Unsuported Image mode")
     
+    width,height=img.size
+    array=np.array(list(img.getdata()))
+
+
     # specifies the available encoding space in the source file and the attempted
     # size of encoded data
     total_pixels=array.size//n
@@ -633,7 +635,6 @@ def decode_wav(src,dst):
 def verify_checksum(data_bits, expected_checksum):
     crc16=binascii.crc_hqx(bytes(data_bits),0)
     mask=(1<<HEADER_CHECKSUM)-1
-
     calculated=crc16 & mask
     return calculated==expected_checksum
 
