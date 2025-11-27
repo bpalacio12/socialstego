@@ -39,6 +39,24 @@ DISCORD_REF=1
 REDDIT_REF=2
 SOUNDCLOUD_REF=3
 
+# Prints banner to screen during program execution
+def print_banner():
+    print(
+    """
+  /$$$$$$                      /$$           /$$          /$$$$$$   /$$                                  
+ /$$__  $$                    |__/          | $$         /$$__  $$ | $$                                  
+| $$  \__/  /$$$$$$   /$$$$$$$ /$$  /$$$$$$ | $$        | $$  \__//$$$$$$    /$$$$$$   /$$$$$$   /$$$$$$ 
+|  $$$$$$  /$$__  $$ /$$_____/| $$ |____  $$| $$ /$$$$$$|  $$$$$$|_  $$_/   /$$__  $$ /$$__  $$ /$$__  $$
+ \____  $$| $$  \ $$| $$      | $$  /$$$$$$$| $$|______/ \____  $$ | $$    | $$$$$$$$| $$  \ $$| $$  \ $$
+ /$$  \ $$| $$  | $$| $$      | $$ /$$__  $$| $$         /$$  \ $$ | $$ /$$| $$_____/| $$  | $$| $$  | $$
+|  $$$$$$/|  $$$$$$/|  $$$$$$$| $$|  $$$$$$$| $$        |  $$$$$$/ |  $$$$/|  $$$$$$$|  $$$$$$$|  $$$$$$/
+ \______/  \______/  \_______/|__/ \_______/|__/         \______/   \___/   \_______/ \____  $$ \______/ 
+                                                                                      /$$  \ $$          
+                                                                                     |  $$$$$$/          
+                                                                                      \______/           
+    """
+    )
+
 # mapping for file signatures
 magic_numbers = {
     "pdf": bytes.fromhex("255044462d"),
@@ -318,6 +336,11 @@ def encode_png(src,sensitive_info,dst,bit_count,encrypt):
     print(f"{len(data_bits)//8} total bytes written")
     return 
 
+
+# This function will encode sensitive information into a WAV file using
+# LSB steganography. Starts by loading the wav file as 16-bit samples 
+# If stareo, will use the first channel. Functionality changes based 
+# on the specified bitcount and encryption flag when executed from terminal
 def encode_wav(src,sensitive_info,dst,bit_count,encrypt):
     samples, samplerate=sf.read(src,dtype='int16')
 
@@ -427,6 +450,11 @@ def decode(src,dst):
     else:
         print("decode not possible for provided file format")
 
+
+# When decoding a target file, this function will extract the header values as
+# defined by the custom protocol used to encode information into the source file
+# returning an array of variables that reference the header values of the 
+# encoded data
 def parse_header_bits(header):
     if len(header)!=HEADER_SIZE:
         print(len(header))
@@ -458,6 +486,10 @@ def parse_header_bits(header):
     }
     return to_return 
 
+# If the paylaod was identified as being encrypted, this function is called
+# with the encrypted AES_key and encrypted payload as parameters. The recient's
+# private key is loaded and used to decrypt the appended AES key, then the AES
+# key is used to decrypt the payload and returning the decrypted bits
 def decrypt_payload(encrypted_key_bits,encrypted_data_bits):
     encrypted_key_bytes=bits_to_bytes(encrypted_key_bits)
     encrypted_data_bytes=bits_to_bytes(encrypted_data_bits)
@@ -484,6 +516,11 @@ def decrypt_payload(encrypted_key_bits,encrypted_data_bits):
     decrypted_bits = bytes_to_bits(decrypted_bytes)
     return decrypted_bits
 
+# Function for extracting sensitive information from a target PNG, starts by
+# loading the PNG, extracting the header bits encoded into the source file,
+# using this header information to inform the control flow of the program
+# and extracting the encoded bits from the source file. The extracte data
+# is then saved to a file and available for the recipient to view 
 def decode_png(src,dst):
     img=Image.open(src,'r')
     array=np.array(list(img.getdata()))
@@ -538,6 +575,11 @@ def decode_png(src,dst):
 
     print(f"file successfully reconstructed as {dst}")
 
+# Function for extracting sensitive information from a target WAV, starts by
+# loading the WAV, extracting the header bits encoded in the source file,
+# using this header information to inform the control flow of the program
+# and extracting the encoded bits from the source file. The extracte data
+# is then saved to a file and available for the recipient to view 
 def decode_wav(src,dst):
     samples,_ =sf.read(src,dtype='int16')
 
@@ -560,11 +602,9 @@ def decode_wav(src,dst):
     lsb_bits = []
     for i in range(HEADER_SIZE, len(samples_to_read)):
         sample = samples_to_read[i]
-
         for b in range(bit_count):
             lsb_bits.append((sample>>b)&1)
             if len(lsb_bits)==payload_size_bits: break
-        
         if len(lsb_bits)==payload_size_bits: break
 
     if not verify_checksum(lsb_bits,header_vals["checksum"]):
@@ -586,6 +626,10 @@ def decode_wav(src,dst):
     print(f"File successfully reconstructed as {dst}")    
     return
 
+# Function used to verify the checksum of the extracted information from a
+# chosen source file. Returns if the checksum encoded into the 'checksum'
+# header of the custom protocol is consistent with the checksum of the 
+# extracted data
 def verify_checksum(data_bits, expected_checksum):
     crc16=binascii.crc_hqx(bytes(data_bits),0)
     mask=(1<<HEADER_CHECKSUM)-1
@@ -593,6 +637,8 @@ def verify_checksum(data_bits, expected_checksum):
     calculated=crc16 & mask
     return calculated==expected_checksum
 
+# This function verifies the file type of the provided source file as being 
+# a lossless data type as denoted in the LOSSLESS_TYPES global list
 def verify_lossless(file_path):
     if file_path=="": # if file_path is null
         return False,""
@@ -601,7 +647,7 @@ def verify_lossless(file_path):
     filetype = extract_magic(header)
     return filetype in LOSSLESS_TYPES, filetype
 
-# will return the embedded file type based on magic bytes, returns .txt if no matching header found
+# will return the file type based on magic bytes, returns .txt if no matching header found
 def extract_magic(header):
     for filetype, signature in magic_numbers.items():
         if header.startswith(signature):
@@ -611,8 +657,11 @@ def extract_magic(header):
                 return filetype
     return "txt"
 
-# we are going to start by assuming the target file is a PNG then move forward with other media types 
+# Main function controlling the flow of the execution of this program starts
+# by parsing the arguments from the command line to determine the mode of 
+# execution, files, output file name, bit count, and other flags 
 def main():
+    print_banner()
     args=parse_args()
     load_config()
     files=args.files or []
