@@ -21,7 +21,7 @@ from PIL import Image
 
 # Static reference global lists
 LOSSLESS_TYPES=["wav","png"]
-SOCIAL_LIST=["DISCORD","REDDIT","SOUNDCLOUD"]
+SOCIAL_LIST=["DISCORD","REDDIT","SOUNDCLOUD","X"]
 PNG_ALLOWED_MODES= {"RGB", "RGBA"}
 
 # Static reference header field sizes 
@@ -303,7 +303,7 @@ def encode_png(src,sensitive_info,dst,bit_count,encrypt):
     # size of encoded data
     total_pixels=array.size//n
     capacity_bits=total_pixels*3 * bit_count
-    print(f"Encoding capacity of PNG: {capacity_bits//8} bytes")
+    print(f"Encoding capacity of PNG: {(capacity_bits//8)-(HEADER_SIZE//8)} bytes")
     print(f"Attempting to encode: {len(data_bits)//8} bytes")
 
     if len(data_bits)>capacity_bits:
@@ -346,14 +346,14 @@ def encode_png(src,sensitive_info,dst,bit_count,encrypt):
 def encode_wav(src,sensitive_info,dst,bit_count,encrypt):
     samples, samplerate=sf.read(src,dtype='int16')
 
-    # if stereo, pick first channel (or interleave if desired)
+    # if stereo, pick first channel 
     if samples.ndim > 1:
         samples_to_hide=samples[:,0].copy()
     else:
         samples_to_hide=samples.copy()
     
     data_bits=build_payload_bits(sensitive_info,bit_count,encrypt)
-    data_capacity= ((len(samples_to_hide)-HEADER_SIZE)*bit_count + HEADER_SIZE)
+    data_capacity= len(samples_to_hide)*bit_count
 
     print(f"Encoding capacity of WAV file: {data_capacity//8} bytes")
     print(f"Attempting to encode: {len(data_bits)//8} bytes")
