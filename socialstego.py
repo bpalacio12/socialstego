@@ -165,7 +165,8 @@ def encrypt_payload(data_bits):
     with open("example_rsa_key_pub.pem", "rb") as f:
         public_key=serialization.load_pem_public_key(f.read())
     
-    cipher=Cipher(algorithms.AES(aes_key),modes.OFB(iv)) # declares the symmetric encryption cipher and the encryption mode
+    # declares the symmetric encryption cipher and the encryption mode
+    cipher=Cipher(algorithms.AES(aes_key),modes.OFB(iv)) 
     encryptor=cipher.encryptor() # encryptor object 
     encrypted_bytes=encryptor.update(payload_bytes)+encryptor.finalize() # encrypts payload
 
@@ -261,24 +262,6 @@ def encode(src,sensitive_info,dst,encoding_bits,encrypt):
 # based on the specified bitcount and encryption flag when executed from terminal
 def encode_png(src,sensitive_info,dst,bit_count,encrypt):
     data_bits=build_payload_bits(sensitive_info,bit_count,encrypt)
-
-    # For DEBUGGING
-    # size_bits = data_bits[:32]
-    # bit_count_bits = data_bits[32:34]
-    # flags_bits = data_bits[34:36]
-    # checksum_bits = data_bits[36:48]
-    # if encrypt:
-    #     encrypt_key_bits = data_bits[48:304]
-
-    # print("Payload size bits: ", ''.join(str(b) for b in size_bits),bits_to_int(size_bits))
-    # print("Bit count bits:    ", ''.join(str(b) for b in bit_count_bits),bits_to_int(bit_count_bits))
-    # print("Flags bits:        ", ''.join(str(b) for b in flags_bits),bits_to_int(flags_bits))
-    # print("Checksum bits:     ", ''.join(str(b) for b in checksum_bits),bits_to_int(checksum_bits))
-    # if encrypt:
-    #     print("Encrypted key:     ", ''.join(str(b) for b in encrypt_key_bits),bits_to_int(encrypt_key_bits))    
-
-    # exit(0)
-
     img=Image.open(src, 'r')
 
     # if the png type is not that of RGB or RGBA will convert to RGB for encoding purposes
@@ -352,12 +335,14 @@ def encode_wav(src,sensitive_info,dst,bit_count,encrypt):
     else:
         samples_to_hide=samples.copy()
     
+    # constuct the header and payload bits to be encoded
     data_bits=build_payload_bits(sensitive_info,bit_count,encrypt)
     data_capacity= len(samples_to_hide)*bit_count
 
     print(f"Encoding capacity of WAV file: {data_capacity//8} bytes")
     print(f"Attempting to encode: {len(data_bits)//8} bytes")
 
+    # verifies if there is enough audio data to hide the message
     if len(data_bits) > data_capacity:
 
         print("Not enough audio data to hide this message")
@@ -365,6 +350,7 @@ def encode_wav(src,sensitive_info,dst,bit_count,encrypt):
     
     bit_gen = iter(data_bits)
 
+    # start by encoding protocol header with 1-bit LSB encoding
     for i in range(HEADER_SIZE):
         try:
             next_bit=next(bit_gen)
@@ -372,6 +358,7 @@ def encode_wav(src,sensitive_info,dst,bit_count,encrypt):
             break
         samples_to_hide[i] = (samples_to_hide[i] & ~1) | next_bit 
 
+    # once header is encoded, proceed to encode the payload data with specified bit-count
     for i in range(HEADER_SIZE,len(samples_to_hide)):
         sample=samples_to_hide[i]
         for b in range(bit_count):
@@ -383,6 +370,7 @@ def encode_wav(src,sensitive_info,dst,bit_count,encrypt):
             sample=(sample & ~(1<<b)) | (next_bit <<b)
         samples_to_hide[i] = sample
     
+    # if stereo, put modified channel back into samples array
     if samples.ndim > 1:
         encoded_samples=samples.copy()
         encoded_samples[:,0] = samples_to_hide
@@ -452,12 +440,12 @@ def decode(src,dst):
     else:
         print("decode not possible for provided file format")
 
-
 # When decoding a target file, this function will extract the header values as
 # defined by the custom protocol used to encode information into the source file
 # returning an array of variables that reference the header values of the 
 # encoded data
 def parse_header_bits(header):
+    # starts by verifying the header size is correct raising error if not
     if len(header)!=HEADER_SIZE:
         print(len(header))
         raise ValueError("Header size is not expected value")
@@ -467,17 +455,20 @@ def parse_header_bits(header):
     flag_bits = header[HEADER_SIZE_BITS+HEADER_BIT_COUNT:HEADER_SIZE_BITS+HEADER_BIT_COUNT+HEADER_FLAGS]
     checksum_bits = header[HEADER_SIZE_BITS+HEADER_BIT_COUNT+HEADER_FLAGS:HEADER_SIZE_BITS+HEADER_BIT_COUNT+HEADER_FLAGS+HEADER_CHECKSUM]
 
-    payload_size_bytes=bits_to_int(size_bits) # payload size in bytes
+    # get payload size in bytes
+    payload_size_bytes=bits_to_int(size_bits) 
 
+    # get bit count specifier
     rev_bc_map = {0b00: 1, 0b01: 2, 0b10: 3, 0b11: 4}
-    bit_count = rev_bc_map[bits_to_int(bit_count_bits)] # bit count specifier
+    bit_count = rev_bc_map[bits_to_int(bit_count_bits)]
 
-    flags_value=bits_to_int(flag_bits) # Flag intager
-
-    checksum=bits_to_int(checksum_bits) # checksum
-
+    # get Flag integer and extract flag values
+    flags_value=bits_to_int(flag_bits) 
     compressed = (flags_value >> 1) & 1
     encrypted = flags_value &1
+
+    # get 12 bit checksum
+    checksum=bits_to_int(checksum_bits)
 
     to_return={
         "payload_size": payload_size_bytes,
@@ -499,6 +490,7 @@ def decrypt_payload(encrypted_key_bits,encrypted_data_bits):
     with open("example_rsa_key","rb") as f:
         private_key=serialization.load_pem_private_key(f.read(),password=None)
     
+    # decrypt the AES key using recipient's private key
     aes_key=private_key.decrypt(
         encrypted_key_bytes,
         padding.OAEP(
@@ -508,9 +500,11 @@ def decrypt_payload(encrypted_key_bits,encrypted_data_bits):
         )
     )
 
+    # reconstrct the IV and the ciphertext from the provided data
     iv =encrypted_data_bytes[:16]
     ciphertext=encrypted_data_bytes[16:]
 
+    # decrypt the payload using the decrypted AES key and IV
     cipher=Cipher(algorithms.AES(aes_key),modes.OFB(iv))
     decryptor=cipher.decryptor()
     decrypted_bytes = decryptor.update(ciphertext)+decryptor.finalize()
@@ -527,6 +521,7 @@ def decode_png(src,dst):
     img=Image.open(src,'r')
     array=np.array(list(img.getdata()))
 
+    # determine number of channels based on image mode
     if img.mode=='RGB':
         n=3
     elif img.mode=='RGBA':
@@ -536,6 +531,7 @@ def decode_png(src,dst):
 
     total_pixels=array.size//n
 
+    # extract header bits first to determine control flow
     header_bits=[]
     for p in range(HEADER_SIZE//3):
         for q in range(0,3):
@@ -543,6 +539,7 @@ def decode_png(src,dst):
             if len(header_bits)==HEADER_SIZE: break
         if len(header_bits)==HEADER_SIZE: break
 
+    # parse header bits to determine payload size, bit count, flags, checksum
     header_vals=parse_header_bits(header_bits)
     bit_count=header_vals["bit_count"]
     if header_vals["encrypted"]:
@@ -550,6 +547,7 @@ def decode_png(src,dst):
     else:
         payload_size_bits = header_vals["payload_size"]*8
 
+    # extract payload bits based on header information
     lsb_bits=[]
     for p in range(HEADER_SIZE//3,total_pixels):
         for q in range(0,3):
@@ -559,19 +557,23 @@ def decode_png(src,dst):
             if len(lsb_bits)==payload_size_bits: break
         if len(lsb_bits)==payload_size_bits: break
     
+    # verify checksum of extracted data
     if not verify_checksum(lsb_bits,header_vals["checksum"]):
         warnings.warn("Checksum of extracted file is not consistent with expect value/nExtraction still completed")
     else:
         print("Extracted Checksum consistent with calculated")
 
+    # decrypt payload if necessary
     if header_vals["encrypted"]:
         lsb_bits=decrypt_payload(lsb_bits[:2048],lsb_bits[2048:])
                 
     data_bytes=bits_to_bytes(lsb_bits)
 
-    magic=extract_magic(data_bytes[:12]) # calls extract_magic to determine the recovered file type
+    # calls extract_magic to determine the recovered file type
+    magic=extract_magic(data_bytes[:12]) 
     dst= dst+"."+magic
 
+    # save file to specified destination
     with open(dst, "wb") as f:
         f.write(data_bytes)
 
@@ -585,13 +587,16 @@ def decode_png(src,dst):
 def decode_wav(src,dst):
     samples,_ =sf.read(src,dtype='int16')
 
+    # if stereo, pick first channel
     if samples.ndim >1:
         samples_to_read=samples[:,0]
     else:
         samples_to_read=samples
 
+    # extract header bits first to determine control flow
     header_bits = [int(samples_to_read[i] & 1) for i in range(48)]
 
+    # parse header bits to determine payload size, bit count, flags, checksum
     header_vals=parse_header_bits(header_bits)
     bit_count = header_vals["bit_count"]
     payload_size_bytes = header_vals["payload_size"]
@@ -601,6 +606,7 @@ def decode_wav(src,dst):
     else:
         payload_size_bits = payload_size_bytes * 8
 
+    # extract payload bits based on header information
     lsb_bits = []
     for i in range(HEADER_SIZE, len(samples_to_read)):
         sample = samples_to_read[i]
@@ -609,19 +615,23 @@ def decode_wav(src,dst):
             if len(lsb_bits)==payload_size_bits: break
         if len(lsb_bits)==payload_size_bits: break
 
+    # verify checksum of extracted data
     if not verify_checksum(lsb_bits,header_vals["checksum"]):
         warnings.warn("Checksum of extracted file is not consistent with expect value/nExtraction still completed")
     else:
         print("Extracted Checksum consistent with calculated")
 
+    # decrypt payload if necessary
     if encrypted:
         lsb_bits=decrypt_payload(lsb_bits[:2048],lsb_bits[2048:])
 
     data_bytes=bits_to_bytes(lsb_bits)
 
-    magic=extract_magic(data_bytes[:12]) # calls extract_magic to determine the recovered file type
+    # calls extract_magic to determine the recovered file type
+    magic=extract_magic(data_bytes[:12]) 
     dst=dst+"."+magic
 
+    # save file to specified destination
     with open(dst,"wb") as f:
         f.write(data_bytes)
     
@@ -679,7 +689,7 @@ def main():
     elif args.decode:
         output=args.output or "reconstructed"
         if not social=="":
-            # this is where we will extract from social media
+            # TODO this is where we will extract from social media
             print("Not currently supported")
             return
         else:
