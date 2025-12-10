@@ -1,7 +1,7 @@
 # socialstego
 Stego tools for social media enabled covert channels
 
-SocialStego is a tool that was created to leverage the capabilities of LSB steganography to distribute encoded files though social networks such as Discord or X. 
+SocialStego is a tool that was created to leverage the capabilities of LSB steganography to distribute encoded files though social networks such as Discord or X. This tool was created for education purposes only and should not actually be used to cause harm. 
 
 ## Table of Contents
 - [Functionality](#Functionality)
