@@ -5,7 +5,7 @@ SocialStego is a tool that was created to leverage the capabilities of LSB stega
 
 ## Table of Contents
 - [Functionality](#Functionality)
-- [Installation](#Installation)
+- [Installation](#Installation/Setup)
 - [Execution](#Execution)
 - [Considerations](#Considerations)
 
@@ -39,7 +39,7 @@ python socialstego.py -d
 <img width="508" height="355" alt="Screenshot 2025-12-01 224339" src="https://github.com/user-attachments/assets/1a48f9c8-335e-488f-8ebf-a64f61f9da70" />
 
 
-## Installation & Setup
+## Installation/Setup
 
 clone the repository and install necessary packages:
 
