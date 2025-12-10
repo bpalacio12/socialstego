@@ -487,7 +487,7 @@ def decrypt_payload(encrypted_key_bits,encrypted_data_bits):
     encrypted_key_bytes=bits_to_bytes(encrypted_key_bits)
     encrypted_data_bytes=bits_to_bytes(encrypted_data_bits)
 
-    with open("example_rsa_key","rb") as f:
+    with open("example_rsa_key.pem","rb") as f:
         private_key=serialization.load_pem_private_key(f.read(),password=None)
     
     # decrypt the AES key using recipient's private key
