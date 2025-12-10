@@ -11,6 +11,14 @@ SocialStego is a tool that was created to leverage the capabilities of LSB stega
 
 ## Functionality
 #### Supports both encoding and decoding functionality for LSB encoded PNG and WAV files
+Example encode:
+```bash
+python socialstego.py -e​
+```
+Example decode:
+```bash
+python socialstego.py -d 
+```
 
 #### File selection from terminal or through Tkinter UI at runtime
   <img width="719" height="408" alt="image" src="https://github.com/user-attachments/assets/034094b0-489e-4f7f-a263-9eccd24f26db" />
@@ -42,16 +50,36 @@ pip install -r requirements.txt
 ```
 
 ## Execution 
-### file specifier
+### File specifier
 -f | --files
 
 Example encode:
 ```bash
 python socialstego.py -e -f original.png test.txt​
 ```
-Example decodE:
+Example decode:
 ```bash
-python socialstego.py -e -f encoded.wav
+python socialstego.py -d -f encoded.wav
+```
+
+### Output file naming
+-o | --output
+```bash
+python socialstego.py -e -o encoded​
+```
+Example decode:
+```bash
+python socialstego.py -d -o extracted
+```
+
+### Bit count specifier
+-o | --output
+```bash
+python socialstego.py -e -o encoded​
+```
+Example decode:
+```bash
+python socialstego.py -d -o extracted
 ```
 
 
