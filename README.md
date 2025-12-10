@@ -39,15 +39,34 @@ python socialstego.py -d
 <img width="508" height="355" alt="Screenshot 2025-12-01 224339" src="https://github.com/user-attachments/assets/1a48f9c8-335e-488f-8ebf-a64f61f9da70" />
 
 
-## Installation
+## Installation & Setup
 
 clone the repository and install necessary packages:
 
 ```bash
 git clone https://github.com/bpalacio12/socialstego.git
+```
+Ensure Python 3.11 or later is installed on your system along with Python pip - follow these links for more information:
+Installing Python: https://www.python.org/downloads/release/python-3110/
+Installing pip: https://pip.pypa.io/en/stable/installation/
+
+It is encouraged to set up a Python virtual environment for this project but it is not necessary, if interested follow this link for more information:
+Python Virtual Environment: https://docs.python.org/3/library/venv.html
+
+Once Python and pip are installed, install necessary python packages using the following commands:
+```bash
 cd socialstego
 pip install -r requirements.txt
 ```
+If you are interested in making use of encryption and social media automated posting ensure that you have a RSA_2048 generated keypair which can be generated with the following command:
+```bash
+ssh-keygen -t rsa -b 2048 -m PEM -f example_rsa_key
+ssh-keygen -f example_rsa_key -e -m PEM > example_rsa_key_pub.pem
+```
+along with a valid config.json shown in the 'Considerations' section. Follow the processes here to created a discord bot:
+created discord bot: https://discord.com/developers/docs/intro
+
+the private key should only be held by the recipient, while the public key can be used by anyone interested in sending a message to the recipient.
 
 ## Execution 
 ### File specifier
@@ -88,7 +107,7 @@ Example: Only supported in encoding mode
 ```bash
 python socialstego.py -e --encrypt
 ```
-Note: in order to implement encryption when encoding you must have an example RSA_2048 public key in the same directory named 'example_rsa_key_pub.pem' If decoding an encrypted payload the associated RSA_2048 private key must be in the project directory and named 'example_rsa_key.pub"
+Note: in order to implement encryption when encoding you must have an example RSA_2048 public key in the same directory named 'example_rsa_key_pub.pem' If decoding an encrypted payload the associated RSA_2048 private key must be in the project directory and named 'example_rsa_key"
 
 
 ### Social Media Posting
