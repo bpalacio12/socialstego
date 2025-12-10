@@ -98,7 +98,7 @@ python socialstego.py -d -o extracted
 
 Example: Only supported in encoding mode
 ```bash
-python socialstego.py -e -o encoded​
+python socialstego.py -e -b 3 -o encoded​
 ```
 
 ### Encryption
