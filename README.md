@@ -47,8 +47,8 @@ clone the repository and install necessary packages:
 git clone https://github.com/bpalacio12/socialstego.git
 ```
 Ensure Python 3.11 or later is installed on your system along with Python pip - follow these links for more information:
-Installing Python: https://www.python.org/downloads/release/python-3110/
-Installing pip: https://pip.pypa.io/en/stable/installation/
+Installing Python: https://www.python.org/downloads/release/python-3110/  
+Installing pip: https://pip.pypa.io/en/stable/installation/  
 
 It is encouraged to set up a Python virtual environment for this project but it is not necessary, if interested follow this link for more information:
 Python Virtual Environment: https://docs.python.org/3/library/venv.html
@@ -63,8 +63,8 @@ If you are interested in making use of encryption and social media automated pos
 ssh-keygen -t rsa -b 2048 -m PEM -f example_rsa_key
 ssh-keygen -f example_rsa_key -e -m PEM > example_rsa_key_pub.pem
 ```
-along with a valid config.json shown in the 'Considerations' section. Follow the processes here to created a discord bot:
-created discord bot: https://discord.com/developers/docs/intro
+along with a valid config.json shown in the 'Considerations' section. Follow the processes here to created a discord bot:  
+create discord bot: https://discord.com/developers/docs/intro
 
 the private key should only be held by the recipient, while the public key can be used by anyone interested in sending a message to the recipient.
 
