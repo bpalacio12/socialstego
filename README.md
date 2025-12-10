@@ -58,12 +58,12 @@ Once Python and pip are installed, install necessary python packages using the f
 cd socialstego
 pip install -r requirements.txt
 ```
-If you are interested in making use of encryption and social media automated posting ensure that you have a RSA_2048 generated keypair which can be generated with the following command:
+If you are interested in making use of encryption ensure that you have a RSA_2048 generated keypair which can be created with the following commands (ensure you have openssl installed):
 ```bash
-ssh-keygen -t rsa -b 2048 -m PEM -f example_rsa_key
-ssh-keygen -f example_rsa_key -e -m PEM > example_rsa_key_pub.pem
+openssl genrsa -out example_rsa_key.pem 2048
+openssl rsa -in ./example_rsa_key.pem -pubout -out ./example_rsa_key_pub.pem
 ```
-along with a valid config.json shown in the 'Social Media Posting' section. Follow the processes here to created a discord bot:  
+If you are interested in making use of automated social media automated posting create a valid config.json shown in the 'Social Media Posting' section. Follow the processes here to created a discord bot:  
 create discord bot: https://discord.com/developers/docs/intro
 
 the private key should only be held by the recipient, while the public key can be used by anyone interested in sending a message to the recipient.
