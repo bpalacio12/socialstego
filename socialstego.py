@@ -1,7 +1,7 @@
 # SocialStego - A new steganography tool for today's social media landscape
-# Developed by ParaIIeI
+# Developed by ParaIIeI (Branden Palacio)
 # current release V 0.8 
-# 11/2025
+# 12/2025
 
 import tkinter as tk
 from tkinter import filedialog
