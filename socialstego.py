@@ -674,7 +674,6 @@ def extract_magic(header):
 def main():
     print_banner()
     args=parse_args()
-    load_config()
     files=args.files or []
     social=args.social or ""
     encoding_bits=args.bit_count or 1
@@ -685,6 +684,7 @@ def main():
         else:
             dst = encode("","",output,encoding_bits,args.encrypt)
         if not social=="":
+            load_config()
             post_social(dst)
     elif args.decode:
         output=args.output or "reconstructed"
