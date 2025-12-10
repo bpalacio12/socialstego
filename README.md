@@ -46,7 +46,7 @@ clone the repository and install necessary packages:
 ```bash
 git clone https://github.com/bpalacio12/socialstego.git
 ```
-Ensure Python 3.11 or later is installed on your system along with Python pip - follow these links for more information:
+Ensure Python 3.11 or later is installed on your system along with Python pip - follow these links for more information:  
 Installing Python: https://www.python.org/downloads/release/python-3110/  
 Installing pip: https://pip.pypa.io/en/stable/installation/  
 
