@@ -63,7 +63,7 @@ If you are interested in making use of encryption and social media automated pos
 ssh-keygen -t rsa -b 2048 -m PEM -f example_rsa_key
 ssh-keygen -f example_rsa_key -e -m PEM > example_rsa_key_pub.pem
 ```
-along with a valid config.json shown in the 'Considerations' section. Follow the processes here to created a discord bot:  
+along with a valid config.json shown in the 'Social Media Posting' section. Follow the processes here to created a discord bot:  
 create discord bot: https://discord.com/developers/docs/intro
 
 the private key should only be held by the recipient, while the public key can be used by anyone interested in sending a message to the recipient.
