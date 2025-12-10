@@ -92,6 +92,7 @@ Example decode:
 ```bash
 python socialstego.py -d -o extracted
 ```
+Note: The file specifier does not need to be included for the output file, will rely on the logic created in the file type identifier flow.
 
 ### Bit count specifier
 -b | --bit-count
@@ -100,6 +101,7 @@ Example: Only supported in encoding mode
 ```bash
 python socialstego.py -e -b 3 -o encoded​
 ```
+Note: Values range between 1 and 4, default encoding will be LSB 1 
 
 ### Encryption
 
