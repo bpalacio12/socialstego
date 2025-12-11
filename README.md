@@ -10,7 +10,7 @@ SocialStego is a tool that was created to leverage the capabilities of LSB stega
 - [Considerations](#Considerations)
 
 ## Functionality
-#### Supports both encoding and decoding functionality for LSB encoded PNG and WAV files
+#### Supports both encoding and decoding functionality for PNG and WAV files
 Example encode:
 ```bash
 python socialstego.py -e​
@@ -109,7 +109,7 @@ Example: Only supported in encoding mode
 ```bash
 python socialstego.py -e --encrypt
 ```
-Note: in order to implement encryption when encoding you must have an example RSA_2048 public key in the same directory named 'example_rsa_key_pub.pem' If decoding an encrypted payload the associated RSA_2048 private key must be in the project directory and named 'example_rsa_key"
+Note: in order to implement encryption when encoding you must have an example RSA_2048 public key in the same directory named 'example_rsa_key_pub.pem' If decoding an encrypted payload the associated RSA_2048 private key must be in the project directory and named 'example_rsa_key.pem"
 
 
 ### Social Media Posting
